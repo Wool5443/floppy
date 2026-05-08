@@ -6,36 +6,43 @@ ENCODERS = {
         "codec": "hevc_nvenc",
         "needs_hwupload": False,
         "hwaccel": "cuda",
+        "quality_options": ["cq"],
+        "default_options": {"preset": "p7", "tune": "hq", "rc": "vbr"},
     },
     "qsv": {
         "codec": "hevc_qsv",
         "needs_hwupload": False,
         "hwaccel": "qsv",
+        "quality_options": ["global_quality"],
+        "default_options": {"preset": "veryslow"},
     },
     "vaapi": {
         "codec": "hevc_vaapi",
         "needs_hwupload": True,
         "hwaccel": "vaapi",
-    },
-    "videotoolbox": {
-        "codec": "hevc_videotoolbox",
-        "needs_hwupload": False,
-        "hwaccel": "videotoolbox",
+        "quality_options": ["qp"],
+        "default_options": {"rc_mode": "CQP"},
     },
     "amf": {
         "codec": "hevc_amf",
         "needs_hwupload": False,
         "hwaccel": "amf",
+        "quality_options": ["qp_i", "qp_p"],
+        "default_options": {"usage": "high_quality", "quality": "quality"},
     },
     "vulkan": {
         "codec": "hevc_vulkan",
         "needs_hwupload": False,
         "hwaccel": "vulkan",
+        "quality_options": ["qp"],
+        "default_options": {"rc_mode": "cqp", "tune": "hq", "usage": "transcode"},
     },
     "libx265": {
         "codec": "libx265",
         "needs_hwupload": False,
         "hwaccel": None,
+        "quality_options": ["crf"],
+        "default_options": {"preset": "veryslow"},
     },
 }
 
@@ -43,7 +50,6 @@ ENCODER_PRIORITIES = [
     "nvenc",
     "qsv",
     "vaapi",
-    "videotoolbox",
     "amf",
     "vulkan",
     "libx265",
@@ -61,7 +67,7 @@ def _run_ffmpeg(args, timeout=None):
     )
 
 
-def _get_hevc_encoders():
+def _get_hevc_codecs():
     try:
         result = _run_ffmpeg(["-encoders"])
     except (FileNotFoundError, subprocess.CalledProcessError):
@@ -143,18 +149,15 @@ def _output_options(encoder, resolution, quality):
     options = {
         "codec:v": encoder["codec"],
     }
+    options.update(encoder.get("default_options", {}))
     video_filter = _video_filter(encoder, resolution)
 
     if video_filter is not None:
         options["vf"] = video_filter
 
-    if quality is not None and encoder["codec"] == "libx265":
-        options.update(
-            {
-                "preset": "veryslow",
-                "crf": quality,
-            }
-        )
+    if quality is not None:
+        for option in encoder["quality_options"]:
+            options[option] = quality
 
     return options
 
@@ -165,15 +168,17 @@ def _base_configuration(name, encoder):
         "codec": encoder["codec"],
         "hwaccel": encoder["hwaccel"],
         "needs_hwupload": encoder["needs_hwupload"],
+        "quality_options": encoder["quality_options"],
+        "default_options": encoder.get("default_options", {}),
     }
 
 
 def get_encode_configuration():
-    encoders = set(_get_hevc_encoders())
+    codecs = set(_get_hevc_codecs())
 
     for name in ENCODER_PRIORITIES:
         encoder = ENCODERS[name]
-        if encoder["codec"] in encoders and can_encode_hevc(encoder):
+        if encoder["codec"] in codecs and can_encode_hevc(encoder):
             return _base_configuration(name, encoder)
 
     raise RuntimeError("No usable HEVC encoder found in ffmpeg.")
@@ -183,6 +188,8 @@ def append_encode_options(encode_configuration, resolution, quality):
     encoder = {
         "codec": encode_configuration["codec"],
         "needs_hwupload": encode_configuration["needs_hwupload"],
+        "quality_options": encode_configuration["quality_options"],
+        "default_options": encode_configuration["default_options"],
     }
     configuration = encode_configuration.copy()
     configuration["output_options"] = _output_options(
