@@ -34,6 +34,11 @@ async def reencode(
         quality=quality,
         frame_rate=output_frame_rate,
     )
+    print(
+        "Using "
+        f"hwaccel={encode_configuration.encoder.hwaccel} "
+        f"codec={encode_configuration.encoder.codec}"
+    )
 
     suffix = input_path.suffix
     name = input_path.name.removesuffix(suffix)
@@ -51,14 +56,18 @@ async def reencode(
     )
 
     frame_count = u.get_frame_count(input_path)
+    progress_frame_count = frame_count
+
+    if output_frame_rate is not None and source_frame_rate > 0:
+        progress_frame_count = int(frame_count * output_frame_rate / source_frame_rate)
 
     @ffmpeg.on("progress")
     def on_progress(progress: Progress) -> None:  # pyright: ignore[reportUnusedFunction]
-        if frame_count < MIN_PROGRESS_FRAME_COUNT:
+        if progress_frame_count < MIN_PROGRESS_FRAME_COUNT:
             return
 
         p = progress.frame
-        done = p / frame_count
+        done = p / progress_frame_count
 
         if progress_callback is not None:
             progress_callback(done)
