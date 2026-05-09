@@ -190,7 +190,7 @@ def _video_filter(
         filters.append(f"fps={frame_rate:g}")
 
     if resolution is not None:
-        filters.append(f"scale={resolution}:-1")
+        filters.append(f"scale=-2:{resolution}")
 
     if encoder.needs_hwupload:
         filters.extend(["format=nv12", "hwupload"])

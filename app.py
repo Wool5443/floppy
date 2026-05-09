@@ -12,9 +12,7 @@ GTK_VERSION = "4.0"
 gi.require_version("Gtk", GTK_VERSION)
 gi.require_version("Gdk", GTK_VERSION)
 
-# noqa: E402
-# pyright: ignore[reportAttributeAccessIssue]
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk # pyright: ignore[reportAttributeAccessIssue] # noqa: E402
 
 APPLICATION_ID = "dev.floppy.Reencoder"
 WINDOW_WIDTH = 720
@@ -26,7 +24,7 @@ LEFT_ALIGN = 0
 QUALITY_MIN = 1
 QUALITY_MAX = 51
 QUALITY_STEP = 1
-DEFAULT_QUALITY = 24
+DEFAULT_QUALITY = 30
 RESOLUTION_SOURCE_SIZE = 0
 RESOLUTION_MAX = 7680
 RESOLUTION_STEP = 1
