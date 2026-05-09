@@ -1,11 +1,10 @@
 import asyncio
-import importlib
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+import engine
 import utils
 
 
@@ -54,7 +53,7 @@ class FakeFFmpeg:
         self.progress_handler(FakeProgress(frame=25))
 
 
-def import_engine_with_fake_configuration(monkeypatch: pytest.MonkeyPatch):
+def use_fake_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     encoder = utils.EncoderDefinition(
         codec="libx265",
         needs_hwupload=False,
@@ -65,18 +64,16 @@ def import_engine_with_fake_configuration(monkeypatch: pytest.MonkeyPatch):
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
     monkeypatch.setattr(utils, "get_encode_configuration", lambda: configuration)
-    sys.modules.pop("engine", None)
-    engine = importlib.import_module("engine")
+    monkeypatch.setattr(engine, "ENCODE_CONFIGURATION", None)
     monkeypatch.setattr(engine, "FFmpeg", FakeFFmpeg)
     FakeFFmpeg.instances.clear()
-    return engine
 
 
 def test_reencode_uses_selected_options_and_copies_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    engine = import_engine_with_fake_configuration(monkeypatch)
+    use_fake_configuration(monkeypatch)
     input_path = tmp_path / "video.mov"
     metadata_copies: list[tuple[Path, Path]] = []
     progress_values: list[float] = []
@@ -122,7 +119,7 @@ def test_reencode_does_not_start_when_metadata_copy_needs_missing_exiftool(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    engine = import_engine_with_fake_configuration(monkeypatch)
+    use_fake_configuration(monkeypatch)
     input_path = tmp_path / "video.mov"
 
     def fail_exiftool_check() -> None:
@@ -149,7 +146,7 @@ def test_reencode_keeps_source_resolution_and_fps_when_limits_are_higher(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    engine = import_engine_with_fake_configuration(monkeypatch)
+    use_fake_configuration(monkeypatch)
     input_path = tmp_path / "video.mov"
     metadata_copies: list[tuple[Path, Path]] = []
 
@@ -179,3 +176,123 @@ def test_reencode_keeps_source_resolution_and_fps_when_limits_are_higher(
         "crf": 30,
     }
     assert metadata_copies == []
+
+
+def test_reencode_does_not_probe_encoder_on_import(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    monkeypatch.setattr(engine, "ENCODE_CONFIGURATION", None)
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 720)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 24.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    asyncio.run(engine.reencode(tmp_path / "video.mov", quality=30))
+
+    assert engine.ENCODE_CONFIGURATION is not None
+
+
+def test_reencode_ignores_progress_callback_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 720)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 24.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    def fail_progress(_fraction: float) -> None:
+        raise RuntimeError("progress failed")
+
+    output_path = asyncio.run(
+        engine.reencode(
+            tmp_path / "video.mov",
+            quality=30,
+            progress_callback=fail_progress,
+        )
+    )
+
+    assert output_path == (tmp_path / "video.mov").absolute().with_stem(
+        "video_compressed"
+    )
+
+
+def test_reencode_reports_source_size_and_fps_probe_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    status_messages: list[str] = []
+
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: utils.VIDEO_DATA_ERROR)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: utils.VIDEO_DATA_ERROR)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    asyncio.run(
+        engine.reencode(
+            tmp_path / "video.mov",
+            quality=30,
+            resolution=720,
+            frame_rate=30,
+            status_callback=status_messages.append,
+        )
+    )
+
+    assert status_messages == [
+        "Could not read source size/FPS, keeping source size/FPS",
+    ]
+    assert FakeFFmpeg.instances[0].output_options == {
+        "codec:v": "libx265",
+        "preset": "veryslow",
+        "crf": 30,
+    }
+
+
+def test_reencode_reports_source_fps_probe_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    status_messages: list[str] = []
+
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 1080)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: utils.VIDEO_DATA_ERROR)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    asyncio.run(
+        engine.reencode(
+            tmp_path / "video.mov",
+            quality=30,
+            frame_rate=30,
+            status_callback=status_messages.append,
+        )
+    )
+
+    assert status_messages == ["Could not read source FPS, keeping source FPS"]
+
+
+def test_reencode_ignores_status_callback_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: utils.VIDEO_DATA_ERROR)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 24.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    def fail_status(_message: str) -> None:
+        raise RuntimeError("status failed")
+
+    output_path = asyncio.run(
+        engine.reencode(
+            tmp_path / "video.mov",
+            quality=30,
+            resolution=720,
+            status_callback=fail_status,
+        )
+    )
+
+    assert output_path == (tmp_path / "video.mov").absolute().with_stem(
+        "video_compressed"
+    )

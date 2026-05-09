@@ -171,3 +171,54 @@ def test_ensure_exiftool_available_raises_clear_error(
 
     with pytest.raises(RuntimeError, match=utils.EXIFTOOL_UNAVAILABLE_ERROR):
         utils.ensure_exiftool_available()
+
+
+def test_get_frame_count_returns_error_for_invalid_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        utils,
+        "_get_video_data",
+        lambda filename, field: subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="N/A",
+            stderr="",
+        ),
+    )
+
+    assert utils.get_frame_count("input.mov") == utils.VIDEO_DATA_ERROR
+
+
+def test_get_frame_rate_returns_error_for_zero_denominator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        utils,
+        "_get_video_data",
+        lambda filename, field: subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="0/0",
+            stderr="",
+        ),
+    )
+
+    assert utils.get_frame_rate("input.mov") == utils.VIDEO_DATA_ERROR
+
+
+def test_get_resolution_returns_error_for_invalid_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        utils,
+        "_get_video_data",
+        lambda filename, field: subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="N/A",
+            stderr="",
+        ),
+    )
+
+    assert utils.get_resolution("input.mov") == utils.VIDEO_DATA_ERROR

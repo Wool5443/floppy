@@ -261,25 +261,37 @@ def _get_video_data(
 
 def get_frame_count(filename: PathLike) -> int:
     try:
-        result = int(_get_video_data(filename, "nb_frames").stdout)
+        result = int(_get_video_data(filename, "nb_frames").stdout.strip())
         return result
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
         return VIDEO_DATA_ERROR
 
 
 def get_frame_rate(filename: PathLike) -> float:
     try:
-        result = _get_video_data(filename, "avg_frame_rate").stdout.split("/")
-        return int(result[0]) / int(result[1])
-    except (FileNotFoundError, subprocess.CalledProcessError):
+        numerator, denominator = (
+            _get_video_data(
+                filename,
+                "avg_frame_rate",
+            )
+            .stdout.strip()
+            .split("/")
+        )
+        return int(numerator) / int(denominator)
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        ValueError,
+        ZeroDivisionError,
+    ):
         return VIDEO_DATA_ERROR
 
 
 def get_resolution(filename: PathLike) -> int:
     try:
-        result = _get_video_data(filename, "height").stdout
+        result = _get_video_data(filename, "height").stdout.strip()
         return int(result)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
         return VIDEO_DATA_ERROR
 
 

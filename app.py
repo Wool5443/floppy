@@ -147,6 +147,11 @@ class MainWindow(Gtk.ApplicationWindow):
                         frame_rate=frame_rate,
                         copy_metadata=copy_metadata,
                         progress_callback=self._queue_progress,
+                        status_callback=lambda message: GLib.idle_add(
+                            self.status_label_widget.set_text,
+                            f"{completed}/{total} reencoded - {filename.name}: "
+                            f"{message}",
+                        ),
                     )
                 )
                 completed += 1

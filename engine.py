@@ -1,17 +1,28 @@
 import asyncio
 from collections.abc import Callable
 from pathlib import Path
+from sys import stderr
 
 from ffmpeg import Progress
 from ffmpeg.asyncio import FFmpeg
 
 import utils as u
 
-ENCODE_CONFIGURATION = u.get_encode_configuration()
+ENCODE_CONFIGURATION: u.EncodeConfiguration | None = None
 DEFAULT_SAMPLE_QUALITY = 40
 DEFAULT_SAMPLE_FILE = "IMG_7677.mov"
 MIN_PROGRESS_FRAME_COUNT = 1
 ProgressCallback = Callable[[float], None]
+StatusCallback = Callable[[str], None]
+
+
+def get_encode_configuration() -> u.EncodeConfiguration:
+    global ENCODE_CONFIGURATION
+
+    if ENCODE_CONFIGURATION is None:
+        ENCODE_CONFIGURATION = u.get_encode_configuration()
+
+    return ENCODE_CONFIGURATION
 
 
 async def reencode(
@@ -21,6 +32,7 @@ async def reencode(
     frame_rate: float | None = None,
     copy_metadata: bool = False,
     progress_callback: ProgressCallback | None = None,
+    status_callback: StatusCallback | None = None,
 ) -> Path:
     input_path = Path(filename).absolute()
 
@@ -32,6 +44,24 @@ async def reencode(
     output_resolution = None
     output_frame_rate = None
 
+    source_resolution_failed = source_resolution == u.VIDEO_DATA_ERROR
+    source_frame_rate_failed = source_frame_rate == u.VIDEO_DATA_ERROR
+
+    if (
+        resolution is not None
+        and frame_rate is not None
+        and source_resolution_failed
+        and source_frame_rate_failed
+    ):
+        _send_status(
+            status_callback,
+            "Could not read source size/FPS, keeping source size/FPS",
+        )
+    elif resolution is not None and source_resolution_failed:
+        _send_status(status_callback, "Could not read source size, keeping source size")
+    elif frame_rate is not None and source_frame_rate_failed:
+        _send_status(status_callback, "Could not read source FPS, keeping source FPS")
+
     if frame_rate is not None and source_frame_rate > frame_rate:
         output_frame_rate = frame_rate
 
@@ -39,7 +69,7 @@ async def reencode(
         output_resolution = resolution
 
     encode_configuration = u.append_encode_options(
-        ENCODE_CONFIGURATION,
+        get_encode_configuration(),
         resolution=output_resolution,
         quality=quality,
         frame_rate=output_frame_rate,
@@ -81,7 +111,10 @@ async def reencode(
         done = p / progress_frame_count
 
         if progress_callback is not None:
-            progress_callback(done)
+            try:
+                progress_callback(done)
+            except Exception as error:
+                print(f"Progress callback failed: {error}", file=stderr)
         else:
             print(f"{done * 100:0.2f}%")
 
@@ -91,6 +124,17 @@ async def reencode(
         u.copy_metadata_with_exiftool(input_path, output_path)
 
     return output_path
+
+
+def _send_status(status_callback: StatusCallback | None, message: str) -> None:
+    if status_callback is None:
+        print(message)
+        return
+
+    try:
+        status_callback(message)
+    except Exception as error:
+        print(f"Status callback failed: {error}", file=stderr)
 
 
 async def main() -> None:
