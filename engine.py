@@ -1,23 +1,20 @@
 import asyncio
 from pathlib import Path
-from typing import Union
 
 from ffmpeg import Progress
 from ffmpeg.asyncio import FFmpeg
 
-import environment as e
+import utils as u
 
-ENCODE_CONFIGURATION = e.get_encode_configuration()
-
-PathLike = Union[str, Path]
+ENCODE_CONFIGURATION = u.get_encode_configuration()
 
 
 async def reencode(
-    filename: PathLike,
+    filename: u.PathLike,
     quality: int | None,
     resolution: int | None = None,
 ) -> None:
-    encode_configuration = e.append_encode_options(
+    encode_configuration = u.append_encode_options(
         ENCODE_CONFIGURATION,
         resolution=resolution,
         quality=quality,
@@ -39,10 +36,10 @@ async def reencode(
         )
     )
 
-    frame_count = e.get_frame_count(input_path)
+    frame_count = u.get_frame_count(input_path)
 
     @ffmpeg.on("progress")
-    def on_progress(progress: Progress) -> None:
+    def on_progress(progress: Progress) -> None:  # pyright: ignore[reportUnusedFunction]
         p = progress.frame
         print(f"{p / frame_count * 100:0.2f}%")
 

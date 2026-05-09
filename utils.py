@@ -1,10 +1,11 @@
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 
 OptionValue = str | int | float | bool | None
 OutputOptions = dict[str, OptionValue]
+PathLike = str | Path
 
 
 @dataclass
@@ -19,11 +20,7 @@ class EncoderDefinition:
 @dataclass
 class EncodeConfiguration:
     name: str
-    codec: str
-    hwaccel: str | None
-    needs_hwupload: bool
-    quality_options: list[str]
-    default_options: OutputOptions = field(default_factory=dict)
+    encoder: EncoderDefinition
     output_options: OutputOptions = field(default_factory=dict)
 
 
@@ -174,7 +171,10 @@ def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
     return True
 
 
-def _video_filter(encoder: EncoderDefinition, resolution: int | None) -> str | None:
+def _video_filter(
+    encoder: EncoderDefinition,
+    resolution: int | None,
+) -> str | None:
     filters: list[str] = []
 
     if resolution is not None:
@@ -216,16 +216,12 @@ def _base_configuration(
 ) -> EncodeConfiguration:
     return EncodeConfiguration(
         name=name,
-        codec=encoder.codec,
-        hwaccel=encoder.hwaccel,
-        needs_hwupload=encoder.needs_hwupload,
-        quality_options=encoder.quality_options,
-        default_options=encoder.default_options,
+        encoder=encoder,
     )
 
 
 def _get_video_data(
-    filename: str | Path,
+    filename: PathLike,
     field: str,
 ) -> subprocess.CompletedProcess[str]:
     result = _run_ffprobe(
@@ -244,7 +240,7 @@ def _get_video_data(
     return result
 
 
-def get_frame_count(filename: str | Path) -> int:
+def get_frame_count(filename: PathLike) -> int:
     try:
         result = int(_get_video_data(filename, "nb_frames").stdout)
         return result
@@ -252,7 +248,7 @@ def get_frame_count(filename: str | Path) -> int:
         return -1
 
 
-def get_frame_rate(filename: str | Path) -> float:
+def get_frame_rate(filename: PathLike) -> float:
     try:
         result = _get_video_data(filename, "r_frame_rate").stdout.split("/")
         return int(result[0]) / int(result[1])
@@ -276,22 +272,10 @@ def append_encode_options(
     resolution: int | None,
     quality: int | None,
 ) -> EncodeConfiguration:
-    encoder = EncoderDefinition(
-        codec=encode_configuration.codec,
-        needs_hwupload=encode_configuration.needs_hwupload,
-        hwaccel=encode_configuration.hwaccel,
-        quality_options=encode_configuration.quality_options,
-        default_options=encode_configuration.default_options,
-    )
-    return EncodeConfiguration(
-        name=encode_configuration.name,
-        codec=encode_configuration.codec,
-        hwaccel=encode_configuration.hwaccel,
-        needs_hwupload=encode_configuration.needs_hwupload,
-        quality_options=encode_configuration.quality_options,
-        default_options=encode_configuration.default_options,
+    return replace(
+        encode_configuration,
         output_options=_output_options(
-            encoder,
+            encode_configuration.encoder,
             resolution=resolution,
             quality=quality,
         ),
