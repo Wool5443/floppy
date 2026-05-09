@@ -57,14 +57,22 @@ ENCODER_PRIORITIES = [
 VAAPI_DEVICE = Path("/dev/dri/renderD128")
 
 
-def _run_ffmpeg(args, timeout=None):
+def _run(exec, args, timeout=None):
     return subprocess.run(
-        ["ffmpeg", "-hide_banner", *args],
+        [exec, *args],
         capture_output=True,
         text=True,
         check=True,
         timeout=timeout,
     )
+
+
+def _run_ffmpeg(args, timeout=None):
+    return _run("ffmpeg", ["-hide_banner"] + args, timeout)
+
+
+def _run_ffprobe(args, timeout=None):
+    return _run("ffprobe", args, timeout)
 
 
 def _get_hevc_codecs():
@@ -117,7 +125,7 @@ def _probe_args(encoder):
     return args
 
 
-def can_encode_hevc(encoder):
+def _can_encode_hevc(encoder):
     try:
         _run_ffmpeg(_probe_args(encoder), timeout=10)
     except (
@@ -173,12 +181,45 @@ def _base_configuration(name, encoder):
     }
 
 
+def _get_video_data(filename, field):
+    result = _run_ffprobe(
+        [
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            f"stream={field}",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            filename,
+        ]
+    )
+    return result
+
+
+def get_frame_count(filename):
+    try:
+        result = int(_get_video_data(filename, "nb_frames").stdout)
+        return result
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return -1
+
+
+def get_frame_rate(filename):
+    try:
+        result = _get_video_data(filename, "r_frame_rate").stdout.split("/")
+        return int(result[0]) / int(result[1])
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return -1
+
+
 def get_encode_configuration():
     codecs = set(_get_hevc_codecs())
 
     for name in ENCODER_PRIORITIES:
         encoder = ENCODERS[name]
-        if encoder["codec"] in codecs and can_encode_hevc(encoder):
+        if encoder["codec"] in codecs and _can_encode_hevc(encoder):
             return _base_configuration(name, encoder)
 
     raise RuntimeError("No usable HEVC encoder found in ffmpeg.")
