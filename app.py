@@ -12,7 +12,11 @@ GTK_VERSION = "4.0"
 gi.require_version("Gtk", GTK_VERSION)
 gi.require_version("Gdk", GTK_VERSION)
 
-from gi.repository import Gdk, GLib, Gtk # pyright: ignore[reportAttributeAccessIssue] # noqa: E402
+from gi.repository import (  # noqa: E402
+    Gdk,  # pyright: ignore[reportAttributeAccessIssue]
+    GLib,  # pyright: ignore[reportAttributeAccessIssue]
+    Gtk,  # pyright: ignore[reportAttributeAccessIssue]
+)
 
 APPLICATION_ID = "dev.floppy.Reencoder"
 WINDOW_WIDTH = 720
@@ -277,7 +281,14 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         self.quality_spin_button.set_value(DEFAULT_QUALITY)
         quality_row.append(self.quality_spin_button)
+        quality_row.append(self._create_quality_hint_label())
         return quality_row
+
+    def _create_quality_hint_label(self) -> Gtk.Label:
+        hint_label = Gtk.Label(label="Less means higher quality")
+        hint_label.add_css_class(DIM_LABEL_CSS_CLASS)
+        hint_label.set_xalign(LEFT_ALIGN)
+        return hint_label
 
     def _create_resolution_row(self) -> Gtk.Box:
         resolution_row = Gtk.Box(
