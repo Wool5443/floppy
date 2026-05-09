@@ -1,0 +1,6 @@
+future==1.0.0
+pycairo==1.29.0
+pyee==13.0.1
+PyGObject==3.56.2
+python-ffmpeg==2.0.12
+typing_extensions==4.15.0
