@@ -32,12 +32,6 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-CLI test reencode:
-
-```bash
-python engine.py
-```
-
 ## Usage
 
 1. Open app.

@@ -9,8 +9,6 @@ from ffmpeg.asyncio import FFmpeg
 import utils as u
 
 ENCODE_CONFIGURATION: u.EncodeConfiguration | None = None
-DEFAULT_SAMPLE_QUALITY = 40
-DEFAULT_SAMPLE_FILE = "IMG_7677.mov"
 MIN_PROGRESS_FRAME_COUNT = 1
 ProgressCallback = Callable[[float], None]
 StatusCallback = Callable[[str], None]
@@ -135,11 +133,3 @@ def _send_status(status_callback: StatusCallback | None, message: str) -> None:
         status_callback(message)
     except Exception as error:
         print(f"Status callback failed: {error}", file=stderr)
-
-
-async def main() -> None:
-    await reencode(DEFAULT_SAMPLE_FILE, quality=DEFAULT_SAMPLE_QUALITY)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
