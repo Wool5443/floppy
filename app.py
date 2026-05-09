@@ -9,7 +9,8 @@ import engine
 GTK_VERSION = "4.0"
 
 gi.require_version("Gtk", GTK_VERSION)
-from gi.repository import GLib, Gtk  # noqa: E402  # pyright: ignore[reportAttributeAccessIssue]
+gi.require_version("Gdk", GTK_VERSION)
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402  # pyright: ignore[reportAttributeAccessIssue]
 
 
 APPLICATION_ID = "dev.floppy.Reencoder"
@@ -29,6 +30,11 @@ RESOLUTION_STEP = 1
 TITLE_CSS_CLASS = "title-1"
 PROGRESS_MIN = 0.0
 PROGRESS_MAX = 1.0
+APP_CSS = """
+progressbar progress {
+    background: #3584e4;
+}
+"""
 
 
 class FloppyApp(Gtk.Application):
@@ -37,6 +43,7 @@ class FloppyApp(Gtk.Application):
 
     def do_activate(self) -> None:
         window = MainWindow(self)
+        load_css()
         window.present()
 
 
@@ -107,7 +114,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self.progress = Gtk.ProgressBar()
         self.progress.set_hexpand(True)
         self.progress.set_show_text(True)
-        self.progress.set_fraction(0.5)
         root.append(self.progress)
 
         self.status_label = Gtk.Label(label="")
@@ -203,8 +209,7 @@ class MainWindow(Gtk.ApplicationWindow):
         GLib.idle_add(self._set_progress, fraction)
 
     def _set_progress(self, fraction: float) -> bool:
-        # self.progress.set_fraction(fraction)
-        self.progress.set_fraction(0.5)
+        self.progress.set_fraction(fraction)
         self.progress.set_text(f"{fraction * 100:0.2f}%")
         return False
 
@@ -230,6 +235,21 @@ class MainWindow(Gtk.ApplicationWindow):
 def main() -> int:
     app = FloppyApp()
     return app.run()
+
+
+def load_css() -> None:
+    display = Gdk.Display.get_default()
+
+    if display is None:
+        return
+
+    provider = Gtk.CssProvider()
+    provider.load_from_data(APP_CSS.encode())
+    Gtk.StyleContext.add_provider_for_display(
+        display,
+        provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
 
 
 if __name__ == "__main__":
