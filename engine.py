@@ -1,15 +1,17 @@
 import asyncio
 from pathlib import Path
 
+from ffmpeg import Progress
 from ffmpeg.asyncio import FFmpeg
 
-from environment import append_encode_options, get_encode_configuration
+import environment as e
 
-ENCODE_CONFIGURATION = get_encode_configuration()
+ENCODE_CONFIGURATION = e.get_encode_configuration()
+
 
 
 async def reencode(filename, quality, resolution=None):
-    encode_configuration = append_encode_options(
+    encode_configuration = e.append_encode_options(
         ENCODE_CONFIGURATION,
         resolution=resolution,
         quality=quality,
@@ -31,11 +33,19 @@ async def reencode(filename, quality, resolution=None):
         )
     )
 
+    frame_count = e.get_frame_count(input_path)
+
+    @ffmpeg.on("progress")
+    def on_progress(progress: Progress):
+        p = progress.frame
+        print(f"{p / frame_count * 100:0.2f}%")
+
     await ffmpeg.execute()
 
 
 async def main():
-    await reencode("Default.mp4", quality=40)
+    f = "Default.mp4"
+    await reencode(f, quality=15)
 
 
 if __name__ == "__main__":
