@@ -27,6 +27,9 @@ DEFAULT_QUALITY = 24
 RESOLUTION_SOURCE_SIZE = 0
 RESOLUTION_MAX = 7680
 RESOLUTION_STEP = 1
+FRAME_RATE_SOURCE = 0
+FRAME_RATE_MAX = 240
+FRAME_RATE_STEP = 1
 TITLE_CSS_CLASS = "title-1"
 PROGRESS_MIN = 0.0
 PROGRESS_MAX = 1.0
@@ -111,6 +114,21 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         root.append(resolution_row)
 
+        frame_rate_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        frame_rate_row.append(Gtk.Label(label="Frame rate"))
+        self.frame_rate = Gtk.SpinButton.new_with_range(
+            FRAME_RATE_SOURCE,
+            FRAME_RATE_MAX,
+            FRAME_RATE_STEP,
+        )
+        self.frame_rate.set_value(FRAME_RATE_SOURCE)
+        frame_rate_row.append(self.frame_rate)
+        frame_rate_row.append(Gtk.Label(label=f"{FRAME_RATE_SOURCE} keeps source FPS"))
+        root.append(frame_rate_row)
+
         self.progress = Gtk.ProgressBar()
         self.progress.set_hexpand(True)
         self.progress.set_show_text(True)
@@ -166,10 +184,14 @@ class MainWindow(Gtk.ApplicationWindow):
 
         quality = self.quality.get_value_as_int()
         resolution_value = self.resolution.get_value_as_int()
+        frame_rate_value = self.frame_rate.get_value_as_int()
         resolution = None
+        frame_rate = None
 
         if resolution_value != RESOLUTION_SOURCE_SIZE:
             resolution = resolution_value
+        if frame_rate_value != FRAME_RATE_SOURCE:
+            frame_rate = frame_rate_value
 
         self._set_progress(PROGRESS_MIN)
         self.status_label.set_text("Encoding...")
@@ -178,7 +200,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         thread = threading.Thread(
             target=self._reencode_worker,
-            args=(self.selected_file, quality, resolution),
+            args=(self.selected_file, quality, resolution, frame_rate),
             daemon=True,
         )
         thread.start()
@@ -188,6 +210,7 @@ class MainWindow(Gtk.ApplicationWindow):
         filename: Path,
         quality: int,
         resolution: int | None,
+        frame_rate: float | None,
     ) -> None:
         try:
             output_path = asyncio.run(
@@ -195,6 +218,7 @@ class MainWindow(Gtk.ApplicationWindow):
                     filename,
                     quality=quality,
                     resolution=resolution,
+                    frame_rate=frame_rate,
                     progress_callback=self._queue_progress,
                 )
             )

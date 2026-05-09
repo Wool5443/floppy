@@ -18,15 +18,23 @@ async def reencode(
     filename: u.PathLike,
     quality: int | None,
     resolution: int | None = None,
+    frame_rate: float | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
+    input_path = Path(filename).absolute()
+    source_frame_rate = u.get_frame_rate(input_path)
+    output_frame_rate = None
+
+    if frame_rate is not None and source_frame_rate > frame_rate:
+        output_frame_rate = frame_rate
+
     encode_configuration = u.append_encode_options(
         ENCODE_CONFIGURATION,
         resolution=resolution,
         quality=quality,
+        frame_rate=output_frame_rate,
     )
 
-    input_path = Path(filename).absolute()
     suffix = input_path.suffix
     name = input_path.name.removesuffix(suffix)
 

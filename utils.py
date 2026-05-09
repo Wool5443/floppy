@@ -182,8 +182,12 @@ def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
 def _video_filter(
     encoder: EncoderDefinition,
     resolution: int | None,
+    frame_rate: float | None = None,
 ) -> str | None:
     filters: list[str] = []
+
+    if frame_rate is not None:
+        filters.append(f"fps={frame_rate:g}")
 
     if resolution is not None:
         filters.append(f"scale={resolution}:-1")
@@ -201,12 +205,13 @@ def _output_options(
     encoder: EncoderDefinition,
     resolution: int | None,
     quality: int | None,
+    frame_rate: float | None = None,
 ) -> OutputOptions:
     options: OutputOptions = {
         "codec:v": encoder.codec,
     }
     options.update(encoder.default_options)
-    video_filter = _video_filter(encoder, resolution)
+    video_filter = _video_filter(encoder, resolution, frame_rate=frame_rate)
 
     if video_filter is not None:
         options["vf"] = video_filter
@@ -258,7 +263,7 @@ def get_frame_count(filename: PathLike) -> int:
 
 def get_frame_rate(filename: PathLike) -> float:
     try:
-        result = _get_video_data(filename, "r_frame_rate").stdout.split("/")
+        result = _get_video_data(filename, "avg_frame_rate").stdout.split("/")
         return int(result[FRACTION_NUMERATOR_INDEX]) / int(
             result[FRACTION_DENOMINATOR_INDEX]
         )
@@ -281,6 +286,7 @@ def append_encode_options(
     encode_configuration: EncodeConfiguration,
     resolution: int | None,
     quality: int | None,
+    frame_rate: float | None = None,
 ) -> EncodeConfiguration:
     return replace(
         encode_configuration,
@@ -288,5 +294,6 @@ def append_encode_options(
             encode_configuration.encoder,
             resolution=resolution,
             quality=quality,
+            frame_rate=frame_rate,
         ),
     )
