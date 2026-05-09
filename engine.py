@@ -1,6 +1,6 @@
 import asyncio
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 from ffmpeg import Progress
 from ffmpeg.asyncio import FFmpeg
@@ -22,15 +22,20 @@ async def reencode(
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
     input_path = Path(filename).absolute()
+    source_resolution = u.get_resolution(input_path)
     source_frame_rate = u.get_frame_rate(input_path)
+    output_resolution = None
     output_frame_rate = None
 
     if frame_rate is not None and source_frame_rate > frame_rate:
         output_frame_rate = frame_rate
 
+    if resolution is not None and source_resolution > resolution:
+        output_resolution = resolution
+
     encode_configuration = u.append_encode_options(
         ENCODE_CONFIGURATION,
-        resolution=resolution,
+        resolution=output_resolution,
         quality=quality,
         frame_rate=output_frame_rate,
     )

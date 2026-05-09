@@ -2,7 +2,6 @@ import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-
 OptionValue = str | int | float | bool | None
 OutputOptions = dict[str, OptionValue]
 PathLike = str | Path
@@ -78,14 +77,8 @@ ENCODER_PRIORITIES: list[str] = [
     "libx265",
 ]
 VAAPI_DEVICE = Path("/dev/dri/renderD128")
-PROBE_RESOLUTION = 64
 PROBE_TIMEOUT_SECONDS = 10
 VIDEO_DATA_ERROR = -1
-FIRST_VIDEO_STREAM = "v:0"
-FFPROBE_VALUE_OUTPUT = "default=noprint_wrappers=1:nokey=1"
-PRESERVE_ASPECT_RATIO = -1
-FRACTION_NUMERATOR_INDEX = 0
-FRACTION_DENOMINATOR_INDEX = 1
 
 
 def _run(
@@ -264,12 +257,16 @@ def get_frame_count(filename: PathLike) -> int:
 def get_frame_rate(filename: PathLike) -> float:
     try:
         result = _get_video_data(filename, "avg_frame_rate").stdout.split("/")
-        return int(result[FRACTION_NUMERATOR_INDEX]) / int(
-            result[FRACTION_DENOMINATOR_INDEX]
-        )
+        return int(result[0]) / int(result[1])
     except (FileNotFoundError, subprocess.CalledProcessError):
         return VIDEO_DATA_ERROR
 
+def get_resolution(filename: PathLike) -> float:
+    try:
+        result = _get_video_data(filename, "height").stdout
+        return int(result)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return VIDEO_DATA_ERROR
 
 def get_encode_configuration() -> EncodeConfiguration:
     codecs = set(_get_hevc_codecs())
