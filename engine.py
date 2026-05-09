@@ -19,9 +19,14 @@ async def reencode(
     quality: int | None,
     resolution: int | None = None,
     frame_rate: float | None = None,
+    copy_metadata: bool = False,
     progress_callback: ProgressCallback | None = None,
 ) -> Path:
     input_path = Path(filename).absolute()
+
+    if copy_metadata:
+        u.ensure_exiftool_available()
+
     source_resolution = u.get_resolution(input_path)
     source_frame_rate = u.get_frame_rate(input_path)
     output_resolution = None
@@ -38,6 +43,7 @@ async def reencode(
         resolution=output_resolution,
         quality=quality,
         frame_rate=output_frame_rate,
+        copy_metadata=copy_metadata,
     )
     print(
         "Using "
@@ -53,9 +59,9 @@ async def reencode(
     ffmpeg = (
         FFmpeg()
         .option("y")
-        .input(input_path.as_posix())
+        .input(str(input_path))
         .output(
-            output_path.as_posix(),
+            str(output_path),
             encode_configuration.output_options,
         )
     )
@@ -80,6 +86,10 @@ async def reencode(
             print(f"{done * 100:0.2f}%")
 
     await ffmpeg.execute()
+
+    if copy_metadata:
+        u.copy_metadata_with_exiftool(input_path, output_path)
+
     return output_path
 
 

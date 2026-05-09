@@ -94,6 +94,7 @@ class MainWindow(Gtk.ApplicationWindow):
         quality = self.quality_spin_button.get_value_as_int()
         resolution_value = self.resolution_spin_button.get_value_as_int()
         frame_rate_value = self.frame_rate_spin_button.get_value_as_int()
+        copy_metadata = self.metadata_check_button.get_active()
         resolution = None
         frame_rate = None
 
@@ -109,7 +110,13 @@ class MainWindow(Gtk.ApplicationWindow):
 
         thread = threading.Thread(
             target=self._reencode_worker,
-            args=(self.selected_files.copy(), quality, resolution, frame_rate),
+            args=(
+                self.selected_files.copy(),
+                quality,
+                resolution,
+                frame_rate,
+                copy_metadata,
+            ),
             daemon=True,
         )
         thread.start()
@@ -120,6 +127,7 @@ class MainWindow(Gtk.ApplicationWindow):
         quality: int,
         resolution: int | None,
         frame_rate: float | None,
+        copy_metadata: bool,
     ) -> None:
         completed = 0
         total = len(filenames)
@@ -137,6 +145,7 @@ class MainWindow(Gtk.ApplicationWindow):
                         quality=quality,
                         resolution=resolution,
                         frame_rate=frame_rate,
+                        copy_metadata=copy_metadata,
                         progress_callback=self._queue_progress,
                     )
                 )
@@ -222,6 +231,7 @@ class MainWindow(Gtk.ApplicationWindow):
         root.append(self._create_quality_row())
         root.append(self._create_resolution_row())
         root.append(self._create_frame_rate_row())
+        root.append(self._create_metadata_row())
         root.append(self._create_progress_bar())
         root.append(self._create_status_label())
         root.append(self._create_action_row())
@@ -323,6 +333,15 @@ class MainWindow(Gtk.ApplicationWindow):
         frame_rate_row.append(self.frame_rate_spin_button)
         frame_rate_row.append(Gtk.Label(label=f"{FRAME_RATE_SOURCE} keeps source FPS"))
         return frame_rate_row
+
+    def _create_metadata_row(self) -> Gtk.Box:
+        metadata_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        self.metadata_check_button = Gtk.CheckButton(label="Copy metadata")
+        metadata_row.append(self.metadata_check_button)
+        return metadata_row
 
     def _create_progress_bar(self) -> Gtk.ProgressBar:
         self.progress_bar = Gtk.ProgressBar()

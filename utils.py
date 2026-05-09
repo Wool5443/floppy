@@ -79,6 +79,8 @@ ENCODER_PRIORITIES: list[str] = [
 VAAPI_DEVICE = Path("/dev/dri/renderD128")
 PROBE_TIMEOUT_SECONDS = 10
 VIDEO_DATA_ERROR = -1
+EXIFTOOL_METADATA_COPY_ERROR = "Could not copy metadata with exiftool."
+EXIFTOOL_UNAVAILABLE_ERROR = "ExifTool is required to copy metadata."
 
 
 def _run(
@@ -107,6 +109,13 @@ def _run_ffprobe(
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return _run("ffprobe", args, timeout)
+
+
+def _run_exiftool(
+    args: list[str],
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return _run("exiftool", args, timeout)
 
 
 def _get_hevc_codecs() -> list[str]:
@@ -199,10 +208,14 @@ def _output_options(
     resolution: int | None,
     quality: int | None,
     frame_rate: float | None = None,
+    copy_metadata: bool = False,
 ) -> OutputOptions:
     options: OutputOptions = {
         "codec:v": encoder.codec,
     }
+    if copy_metadata:
+        options.update({"map_metadata": "0", "map_chapters": "0"})
+
     options.update(encoder.default_options)
     video_filter = _video_filter(encoder, resolution, frame_rate=frame_rate)
 
@@ -261,12 +274,36 @@ def get_frame_rate(filename: PathLike) -> float:
     except (FileNotFoundError, subprocess.CalledProcessError):
         return VIDEO_DATA_ERROR
 
-def get_resolution(filename: PathLike) -> float:
+
+def get_resolution(filename: PathLike) -> int:
     try:
         result = _get_video_data(filename, "height").stdout
         return int(result)
     except (FileNotFoundError, subprocess.CalledProcessError):
         return VIDEO_DATA_ERROR
+
+
+def copy_metadata_with_exiftool(source: PathLike, output: PathLike) -> None:
+    try:
+        _run_exiftool(
+            [
+                "-overwrite_original",
+                "-TagsFromFile",
+                str(source),
+                "-all:all",
+                str(output),
+            ]
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(EXIFTOOL_METADATA_COPY_ERROR) from error
+
+
+def ensure_exiftool_available() -> None:
+    try:
+        _run_exiftool(["-ver"])
+    except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(EXIFTOOL_UNAVAILABLE_ERROR) from error
+
 
 def get_encode_configuration() -> EncodeConfiguration:
     codecs = set(_get_hevc_codecs())
@@ -284,6 +321,7 @@ def append_encode_options(
     resolution: int | None,
     quality: int | None,
     frame_rate: float | None = None,
+    copy_metadata: bool = False,
 ) -> EncodeConfiguration:
     return replace(
         encode_configuration,
@@ -292,5 +330,6 @@ def append_encode_options(
             resolution=resolution,
             quality=quality,
             frame_rate=frame_rate,
+            copy_metadata=copy_metadata,
         ),
     )

@@ -17,13 +17,13 @@ GTK4 video reencoder for HEVC compression with automatic FFmpeg encoder detectio
 System packages on Fedora:
 
 ```bash
-sudo dnf install ffmpeg gtk4 python3-gobject cairo-devel gobject-introspection-devel
+sudo dnf install ffmpeg gtk4 python3-gobject cairo-devel gobject-introspection-devel perl-Image-ExifTool
 ```
 
 Python dependencies:
 
 ```bash
-python -m pip install -r requirement.txt
+python -m pip install -r requirements.txt
 ```
 
 ## Run
@@ -45,7 +45,8 @@ python engine.py
 3. Set quality.
 4. Optional: set output resolution. `0` keeps source size.
 5. Optional: set maximum frame rate. `0` keeps source FPS.
-6. Press `Reencode`.
+6. Optional: enable `Copy metadata` to copy FFmpeg metadata plus ExifTool tags.
+7. Press `Reencode`.
 
 Output files are saved next to source files with `_compressed` added to filename.
 
