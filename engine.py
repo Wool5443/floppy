@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from typing import Union
 
 from ffmpeg import Progress
 from ffmpeg.asyncio import FFmpeg
@@ -8,9 +9,14 @@ import environment as e
 
 ENCODE_CONFIGURATION = e.get_encode_configuration()
 
+PathLike = Union[str, Path]
 
 
-async def reencode(filename, quality, resolution=None):
+async def reencode(
+    filename: PathLike,
+    quality: int | None,
+    resolution: int | None = None,
+) -> None:
     encode_configuration = e.append_encode_options(
         ENCODE_CONFIGURATION,
         resolution=resolution,
@@ -29,23 +35,23 @@ async def reencode(filename, quality, resolution=None):
         .input(input_path.as_posix())
         .output(
             output_path.as_posix(),
-            encode_configuration["output_options"],
+            encode_configuration.output_options,
         )
     )
 
     frame_count = e.get_frame_count(input_path)
 
     @ffmpeg.on("progress")
-    def on_progress(progress: Progress):
+    def on_progress(progress: Progress) -> None:
         p = progress.frame
         print(f"{p / frame_count * 100:0.2f}%")
 
     await ffmpeg.execute()
 
 
-async def main():
-    f = "Default.mp4"
-    await reencode(f, quality=15)
+async def main() -> None:
+    f = "IMG_7677.mov"
+    await reencode(f, quality=40)
 
 
 if __name__ == "__main__":
