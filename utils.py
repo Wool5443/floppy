@@ -78,6 +78,14 @@ ENCODER_PRIORITIES: list[str] = [
     "libx265",
 ]
 VAAPI_DEVICE = Path("/dev/dri/renderD128")
+PROBE_RESOLUTION = 64
+PROBE_TIMEOUT_SECONDS = 10
+VIDEO_DATA_ERROR = -1
+FIRST_VIDEO_STREAM = "v:0"
+FFPROBE_VALUE_OUTPUT = "default=noprint_wrappers=1:nokey=1"
+PRESERVE_ASPECT_RATIO = -1
+FRACTION_NUMERATOR_INDEX = 0
+FRACTION_DENOMINATOR_INDEX = 1
 
 
 def _run(
@@ -160,7 +168,7 @@ def _probe_args(encoder: EncoderDefinition) -> list[str]:
 
 def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
     try:
-        _run_ffmpeg(_probe_args(encoder), timeout=10)
+        _run_ffmpeg(_probe_args(encoder), timeout=PROBE_TIMEOUT_SECONDS)
     except (
         FileNotFoundError,
         subprocess.CalledProcessError,
@@ -245,15 +253,17 @@ def get_frame_count(filename: PathLike) -> int:
         result = int(_get_video_data(filename, "nb_frames").stdout)
         return result
     except (FileNotFoundError, subprocess.CalledProcessError):
-        return -1
+        return VIDEO_DATA_ERROR
 
 
 def get_frame_rate(filename: PathLike) -> float:
     try:
         result = _get_video_data(filename, "r_frame_rate").stdout.split("/")
-        return int(result[0]) / int(result[1])
+        return int(result[FRACTION_NUMERATOR_INDEX]) / int(
+            result[FRACTION_DENOMINATOR_INDEX]
+        )
     except (FileNotFoundError, subprocess.CalledProcessError):
-        return -1
+        return VIDEO_DATA_ERROR
 
 
 def get_encode_configuration() -> EncodeConfiguration:
