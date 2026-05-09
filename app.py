@@ -10,8 +10,8 @@ GTK_VERSION = "4.0"
 
 gi.require_version("Gtk", GTK_VERSION)
 gi.require_version("Gdk", GTK_VERSION)
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402  # pyright: ignore[reportAttributeAccessIssue]
 
+from gi.repository import Gdk, GLib, Gtk # pyright: ignore[reportAttributeAccessIssue] # noqa: E402
 
 APPLICATION_ID = "dev.floppy.Reencoder"
 WINDOW_WIDTH = 720
@@ -58,98 +58,6 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self.set_child(self._build_interface())
 
-    def _build_interface(self) -> Gtk.Widget:
-        root = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=SECTION_SPACING,
-            margin_top=PAGE_MARGIN,
-            margin_bottom=PAGE_MARGIN,
-            margin_start=PAGE_MARGIN,
-            margin_end=PAGE_MARGIN,
-        )
-
-        title = Gtk.Label(label="HEVC Reencoder")
-        title.add_css_class(TITLE_CSS_CLASS)
-        title.set_xalign(LEFT_ALIGN)
-        root.append(title)
-
-        file_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=ROW_SPACING)
-        self.file_label = Gtk.Label(label="No file selected")
-        self.file_label.set_hexpand(True)
-        self.file_label.set_xalign(LEFT_ALIGN)
-        file_row.append(self.file_label)
-        self.choose_button = Gtk.Button(label="Choose file")
-        self.choose_button.connect("clicked", self._on_choose_file)
-        file_row.append(self.choose_button)
-        root.append(file_row)
-
-        quality_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=ROW_SPACING,
-        )
-        quality_row.append(Gtk.Label(label="Quality"))
-        self.quality = Gtk.SpinButton.new_with_range(
-            QUALITY_MIN,
-            QUALITY_MAX,
-            QUALITY_STEP,
-        )
-        self.quality.set_value(DEFAULT_QUALITY)
-        quality_row.append(self.quality)
-        root.append(quality_row)
-
-        resolution_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=ROW_SPACING,
-        )
-        resolution_row.append(Gtk.Label(label="Resolution"))
-        self.resolution = Gtk.SpinButton.new_with_range(
-            RESOLUTION_SOURCE_SIZE,
-            RESOLUTION_MAX,
-            RESOLUTION_STEP,
-        )
-        self.resolution.set_value(RESOLUTION_SOURCE_SIZE)
-        resolution_row.append(self.resolution)
-        resolution_row.append(
-            Gtk.Label(label=f"{RESOLUTION_SOURCE_SIZE} keeps source size")
-        )
-        root.append(resolution_row)
-
-        frame_rate_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=ROW_SPACING,
-        )
-        frame_rate_row.append(Gtk.Label(label="Frame rate"))
-        self.frame_rate = Gtk.SpinButton.new_with_range(
-            FRAME_RATE_SOURCE,
-            FRAME_RATE_MAX,
-            FRAME_RATE_STEP,
-        )
-        self.frame_rate.set_value(FRAME_RATE_SOURCE)
-        frame_rate_row.append(self.frame_rate)
-        frame_rate_row.append(Gtk.Label(label=f"{FRAME_RATE_SOURCE} keeps source FPS"))
-        root.append(frame_rate_row)
-
-        self.progress = Gtk.ProgressBar()
-        self.progress.set_hexpand(True)
-        self.progress.set_show_text(True)
-        root.append(self.progress)
-
-        self.status_label = Gtk.Label(label="")
-        self.status_label.set_xalign(LEFT_ALIGN)
-        root.append(self.status_label)
-
-        action_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=ROW_SPACING,
-        )
-        action_row.set_halign(Gtk.Align.END)
-        self.reencode_button = Gtk.Button(label="Reencode")
-        self.reencode_button.connect("clicked", self._on_reencode)
-        action_row.append(self.reencode_button)
-        root.append(action_row)
-
-        return root
-
     def _on_choose_file(self, _button: Gtk.Button) -> None:
         dialog = Gtk.FileChooserNative.new(
             "Choose video",
@@ -172,19 +80,19 @@ class MainWindow(Gtk.ApplicationWindow):
 
             if path is not None:
                 self.selected_file = Path(path)
-                self.file_label.set_text(self.selected_file.name)
-                self.status_label.set_text("")
+                self.file_label_widget.set_text(self.selected_file.name)
+                self.status_label_widget.set_text("")
 
         dialog.destroy()
 
     def _on_reencode(self, _button: Gtk.Button) -> None:
         if self.selected_file is None:
-            self.status_label.set_text("Choose a file first")
+            self.status_label_widget.set_text("Choose a file first")
             return
 
-        quality = self.quality.get_value_as_int()
-        resolution_value = self.resolution.get_value_as_int()
-        frame_rate_value = self.frame_rate.get_value_as_int()
+        quality = self.quality_spin_button.get_value_as_int()
+        resolution_value = self.resolution_spin_button.get_value_as_int()
+        frame_rate_value = self.frame_rate_spin_button.get_value_as_int()
         resolution = None
         frame_rate = None
 
@@ -194,7 +102,7 @@ class MainWindow(Gtk.ApplicationWindow):
             frame_rate = frame_rate_value
 
         self._set_progress(PROGRESS_MIN)
-        self.status_label.set_text("Encoding...")
+        self.status_label_widget.set_text("Encoding...")
         self.reencode_button.set_sensitive(False)
         self.choose_button.set_sensitive(False)
 
@@ -233,8 +141,8 @@ class MainWindow(Gtk.ApplicationWindow):
         GLib.idle_add(self._set_progress, fraction)
 
     def _set_progress(self, fraction: float) -> bool:
-        self.progress.set_fraction(fraction)
-        self.progress.set_text(f"{fraction * 100:0.2f}%")
+        self.progress_bar.set_fraction(fraction)
+        self.progress_bar.set_text(f"{fraction * 100:0.2f}%")
         return False
 
     def _finish_reencode(
@@ -246,14 +154,126 @@ class MainWindow(Gtk.ApplicationWindow):
         self.choose_button.set_sensitive(True)
 
         if error is not None:
-            self.status_label.set_text(error)
+            self.status_label_widget.set_text(error)
             return False
 
         self._set_progress(PROGRESS_MAX)
         if output_path is not None:
-            self.status_label.set_text(f"Saved {output_path.name}")
+            self.status_label_widget.set_text(f"Saved {output_path.name}")
 
         return False
+
+    def _build_interface(self) -> Gtk.Widget:
+        root = self._create_root_box()
+        root.append(self._create_title_label())
+        root.append(self._create_file_row())
+        root.append(self._create_quality_row())
+        root.append(self._create_resolution_row())
+        root.append(self._create_frame_rate_row())
+        root.append(self._create_progress_bar())
+        root.append(self._create_status_label())
+        root.append(self._create_action_row())
+
+        return root
+
+    def _create_root_box(self) -> Gtk.Box:
+        root = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=SECTION_SPACING,
+            margin_top=PAGE_MARGIN,
+            margin_bottom=PAGE_MARGIN,
+            margin_start=PAGE_MARGIN,
+            margin_end=PAGE_MARGIN,
+        )
+        return root
+
+    def _create_title_label(self) -> Gtk.Label:
+        title = Gtk.Label(label="HEVC Reencoder")
+        title.add_css_class(TITLE_CSS_CLASS)
+        title.set_xalign(LEFT_ALIGN)
+        return title
+
+    def _create_file_row(self) -> Gtk.Box:
+        file_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=ROW_SPACING)
+        self.file_label_widget = Gtk.Label(label="No file selected")
+        self.file_label_widget.set_hexpand(True)
+        self.file_label_widget.set_xalign(LEFT_ALIGN)
+        file_row.append(self.file_label_widget)
+        self.choose_button = Gtk.Button(label="Choose file")
+        self.choose_button.connect("clicked", self._on_choose_file)
+        file_row.append(self.choose_button)
+        return file_row
+
+    def _create_quality_row(self) -> Gtk.Box:
+        quality_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        quality_row.append(Gtk.Label(label="Quality"))
+        self.quality_spin_button = Gtk.SpinButton.new_with_range(
+            QUALITY_MIN,
+            QUALITY_MAX,
+            QUALITY_STEP,
+        )
+        self.quality_spin_button.set_value(DEFAULT_QUALITY)
+        quality_row.append(self.quality_spin_button)
+        return quality_row
+
+    def _create_resolution_row(self) -> Gtk.Box:
+        resolution_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        resolution_row.append(Gtk.Label(label="Resolution"))
+        self.resolution_spin_button = Gtk.SpinButton.new_with_range(
+            RESOLUTION_SOURCE_SIZE,
+            RESOLUTION_MAX,
+            RESOLUTION_STEP,
+        )
+        self.resolution_spin_button.set_value(RESOLUTION_SOURCE_SIZE)
+        resolution_row.append(self.resolution_spin_button)
+        resolution_row.append(
+            Gtk.Label(label=f"{RESOLUTION_SOURCE_SIZE} keeps source size")
+        )
+        return resolution_row
+
+    def _create_frame_rate_row(self) -> Gtk.Box:
+        frame_rate_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        frame_rate_row.append(Gtk.Label(label="Frame rate"))
+        self.frame_rate_spin_button = Gtk.SpinButton.new_with_range(
+            FRAME_RATE_SOURCE,
+            FRAME_RATE_MAX,
+            FRAME_RATE_STEP,
+        )
+        self.frame_rate_spin_button.set_value(FRAME_RATE_SOURCE)
+        frame_rate_row.append(self.frame_rate_spin_button)
+        frame_rate_row.append(Gtk.Label(label=f"{FRAME_RATE_SOURCE} keeps source FPS"))
+        return frame_rate_row
+
+    def _create_progress_bar(self) -> Gtk.ProgressBar:
+        self.progress_bar = Gtk.ProgressBar()
+        self.progress_bar.set_hexpand(True)
+        self.progress_bar.set_show_text(True)
+        return self.progress_bar
+
+    def _create_status_label(self) -> Gtk.Label:
+        self.status_label_widget = Gtk.Label(label="")
+        self.status_label_widget.set_xalign(LEFT_ALIGN)
+        return self.status_label_widget
+
+    def _create_action_row(self) -> Gtk.Box:
+        action_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        action_row.set_halign(Gtk.Align.END)
+        self.reencode_button = Gtk.Button(label="Reencode")
+        self.reencode_button.connect("clicked", self._on_reencode)
+        action_row.append(self.reencode_button)
+        return action_row
 
 
 def main() -> int:
