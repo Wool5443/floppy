@@ -1,11 +1,14 @@
 import asyncio
 import threading
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 import gi
 
 import engine
+import eta
+import utils as u
 
 GTK_VERSION = "4.0"
 
@@ -39,6 +42,7 @@ TITLE_CSS_CLASS = "title-1"
 DIM_LABEL_CSS_CLASS = "dim-label"
 PROGRESS_MIN = 0.0
 PROGRESS_MAX = 1.0
+PRESET_DEFAULT_LABEL = "Default"
 APP_CSS = """
 progressbar progress {
     background: #3584e4;
@@ -61,8 +65,12 @@ class MainWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Floppy")
         self.set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.selected_files: list[Path] = []
+        self.output_folder: Path | None = None
+        self.reencode_controller: engine.ReencodeController | None = None
+        self.preset_available = False
 
         self.set_child(self._build_interface())
+        self._load_preset_options()
 
     def _on_choose_file(self, _button: Gtk.Button) -> None:
         dialog = Gtk.FileChooserNative.new(
@@ -76,6 +84,28 @@ class MainWindow(Gtk.ApplicationWindow):
         dialog.connect("response", self._on_file_selected)
         dialog.show()
 
+    def _on_choose_folder(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.FileChooserNative.new(
+            "Choose folder",
+            self,
+            Gtk.FileChooserAction.SELECT_FOLDER,
+            "Open",
+            "Cancel",
+        )
+        dialog.connect("response", self._on_folder_selected)
+        dialog.show()
+
+    def _on_choose_output_folder(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.FileChooserNative.new(
+            "Choose output folder",
+            self,
+            Gtk.FileChooserAction.SELECT_FOLDER,
+            "Open",
+            "Cancel",
+        )
+        dialog.connect("response", self._on_output_folder_selected)
+        dialog.show()
+
     def _on_file_selected(
         self,
         dialog: Gtk.FileChooserNative,
@@ -83,6 +113,35 @@ class MainWindow(Gtk.ApplicationWindow):
     ) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._set_selected_files(self._paths_from_files(dialog.get_files()))
+
+        dialog.destroy()
+
+    def _on_folder_selected(
+        self,
+        dialog: Gtk.FileChooserNative,
+        response: int,
+    ) -> None:
+        if response == Gtk.ResponseType.ACCEPT:
+            file = dialog.get_file()
+            path = None if file is None else file.get_path()
+
+            if path is not None:
+                self._set_selected_files(u.collect_video_files(path))
+
+        dialog.destroy()
+
+    def _on_output_folder_selected(
+        self,
+        dialog: Gtk.FileChooserNative,
+        response: int,
+    ) -> None:
+        if response == Gtk.ResponseType.ACCEPT:
+            file = dialog.get_file()
+            path = None if file is None else file.get_path()
+
+            if path is not None:
+                self.output_folder = Path(path)
+                self.output_folder_label_widget.set_text(self.output_folder.name)
 
         dialog.destroy()
 
@@ -95,6 +154,7 @@ class MainWindow(Gtk.ApplicationWindow):
         resolution_value = self.resolution_spin_button.get_value_as_int()
         frame_rate_value = self.frame_rate_spin_button.get_value_as_int()
         copy_metadata = self.metadata_check_button.get_active()
+        preset = self._get_selected_preset()
         resolution = None
         frame_rate = None
 
@@ -105,8 +165,8 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._set_progress(PROGRESS_MIN)
         self.status_label_widget.set_text("Encoding...")
-        self.reencode_button.set_sensitive(False)
-        self.choose_button.set_sensitive(False)
+        self.reencode_controller = engine.ReencodeController()
+        self._set_encoding_state(True)
 
         thread = threading.Thread(
             target=self._reencode_worker,
@@ -116,10 +176,21 @@ class MainWindow(Gtk.ApplicationWindow):
                 resolution,
                 frame_rate,
                 copy_metadata,
+                preset,
+                self.output_folder,
+                self.reencode_controller,
             ),
             daemon=True,
         )
         thread.start()
+
+    def _on_stop(self, _button: Gtk.Button) -> None:
+        if self.reencode_controller is None:
+            return
+
+        self.stop_button.set_sensitive(False)
+        self.status_label_widget.set_text("Stopping...")
+        self.reencode_controller.cancel()
 
     def _reencode_worker(
         self,
@@ -128,16 +199,33 @@ class MainWindow(Gtk.ApplicationWindow):
         resolution: int | None,
         frame_rate: float | None,
         copy_metadata: bool,
+        preset: str | None,
+        output_folder: Path | None,
+        controller: engine.ReencodeController,
     ) -> None:
         completed = 0
         total = len(filenames)
+        batch_started_at = monotonic()
 
         try:
             for filename in filenames:
+                if controller.cancelled:
+                    break
+
                 GLib.idle_add(self._set_progress, PROGRESS_MIN)
                 GLib.idle_add(
                     self.status_label_widget.set_text,
-                    f"{completed}/{total} reencoded - Encoding {filename.name}",
+                    self._encoding_status(
+                        completed,
+                        total,
+                        filename.name,
+                        None,
+                    ),
+                )
+                status_callback = self._make_status_callback(
+                    completed,
+                    total,
+                    filename.name,
                 )
                 asyncio.run(
                     engine.reencode(
@@ -146,12 +234,16 @@ class MainWindow(Gtk.ApplicationWindow):
                         resolution=resolution,
                         frame_rate=frame_rate,
                         copy_metadata=copy_metadata,
-                        progress_callback=self._queue_progress,
-                        status_callback=lambda message: GLib.idle_add(
-                            self.status_label_widget.set_text,
-                            f"{completed}/{total} reencoded - {filename.name}: "
-                            f"{message}",
+                        progress_callback=self._make_progress_callback(
+                            completed,
+                            total,
+                            filename.name,
+                            batch_started_at,
                         ),
+                        status_callback=status_callback,
+                        preset=preset,
+                        controller=controller,
+                        output_folder=output_folder,
                     )
                 )
                 completed += 1
@@ -160,11 +252,14 @@ class MainWindow(Gtk.ApplicationWindow):
                     f"{completed}/{total} reencoded",
                 )
                 GLib.idle_add(self._set_progress, PROGRESS_MAX)
+        except engine.ReencodeStopped:
+            GLib.idle_add(self._finish_reencode, completed, total, None, True)
+            return
         except Exception as error:
-            GLib.idle_add(self._finish_reencode, completed, total, str(error))
+            GLib.idle_add(self._finish_reencode, completed, total, str(error), False)
             return
 
-        GLib.idle_add(self._finish_reencode, completed, total, None)
+        GLib.idle_add(self._finish_reencode, completed, total, None, controller.cancelled)
 
     def _on_files_dropped(
         self,
@@ -181,11 +276,19 @@ class MainWindow(Gtk.ApplicationWindow):
         if hasattr(files, "get_n_items"):
             files = [files.get_item(index) for index in range(files.get_n_items())]
 
-        return [
-            Path(path)
-            for file in files
-            if file is not None and (path := file.get_path()) is not None
-        ]
+        paths = []
+
+        for file in files:
+            if file is None or (path := file.get_path()) is None:
+                continue
+
+            candidate = Path(path)
+            if candidate.is_dir():
+                paths.extend(u.collect_video_files(candidate))
+            else:
+                paths.append(candidate)
+
+        return paths
 
     def _set_selected_files(self, paths: list[Path]) -> None:
         self.selected_files = paths
@@ -199,9 +302,47 @@ class MainWindow(Gtk.ApplicationWindow):
             case count:
                 self.file_label_widget.set_text(f"{count} files selected")
 
-    def _queue_progress(self, fraction: float) -> None:
-        fraction = max(PROGRESS_MIN, min(PROGRESS_MAX, fraction))
-        GLib.idle_add(self._set_progress, fraction)
+    def _make_progress_callback(
+        self,
+        completed: int,
+        total: int,
+        filename: str,
+        batch_started_at: float,
+    ) -> engine.ProgressCallback:
+        def progress_callback(fraction: float) -> None:
+            fraction = max(PROGRESS_MIN, min(PROGRESS_MAX, fraction))
+            remaining_seconds = eta.estimate_remaining_seconds(
+                monotonic() - batch_started_at,
+                completed,
+                fraction,
+                total,
+            )
+            GLib.idle_add(self._set_progress, fraction)
+            GLib.idle_add(
+                self.status_label_widget.set_text,
+                self._encoding_status(
+                    completed,
+                    total,
+                    filename,
+                    remaining_seconds,
+                ),
+            )
+
+        return progress_callback
+
+    def _encoding_status(
+        self,
+        completed: int,
+        total: int,
+        filename: str,
+        remaining_seconds: float | None,
+    ) -> str:
+        status = f"{completed}/{total} reencoded - Encoding {filename}"
+
+        if remaining_seconds is None:
+            return f"{status} - calculating remaining time"
+
+        return f"{status} - remaining {eta.format_remaining_time(remaining_seconds)}"
 
     def _set_progress(self, fraction: float) -> bool:
         self.progress_bar.set_fraction(fraction)
@@ -213,9 +354,10 @@ class MainWindow(Gtk.ApplicationWindow):
         completed: int,
         total: int,
         error: str | None,
+        stopped: bool = False,
     ) -> bool:
-        self.reencode_button.set_sensitive(True)
-        self.choose_button.set_sensitive(True)
+        self.reencode_controller = None
+        self._set_encoding_state(False)
 
         if error is not None:
             self.status_label_widget.set_text(
@@ -223,17 +365,101 @@ class MainWindow(Gtk.ApplicationWindow):
             )
             return False
 
+        if stopped:
+            self.status_label_widget.set_text(f"{completed}/{total} reencoded - stopped")
+            return False
+
         self._set_progress(PROGRESS_MAX)
         self.status_label_widget.set_text(f"{completed}/{total} reencoded")
 
+        return False
+
+    def _make_status_callback(
+        self,
+        completed: int,
+        total: int,
+        filename: str,
+    ) -> engine.StatusCallback:
+        return lambda message: GLib.idle_add(
+            self.status_label_widget.set_text,
+            f"{completed}/{total} reencoded - {filename}: {message}",
+        )
+
+    def _set_encoding_state(self, encoding: bool) -> None:
+        self.reencode_button.set_sensitive(not encoding)
+        self.choose_button.set_sensitive(not encoding)
+        self.choose_folder_button.set_sensitive(not encoding)
+        self.choose_output_folder_button.set_sensitive(not encoding)
+        self.quality_spin_button.set_sensitive(not encoding)
+        self.resolution_spin_button.set_sensitive(not encoding)
+        self.frame_rate_spin_button.set_sensitive(not encoding)
+        self.metadata_check_button.set_sensitive(not encoding)
+        self.preset_combo_box.set_sensitive(not encoding and self.preset_available)
+        self.stop_button.set_sensitive(encoding)
+
+    def _get_selected_preset(self) -> str | None:
+        preset = self.preset_combo_box.get_active_text()
+
+        if preset is None or preset == PRESET_DEFAULT_LABEL:
+            return None
+
+        return preset
+
+    def _load_preset_options(self) -> None:
+        thread = threading.Thread(target=self._load_preset_options_worker, daemon=True)
+        thread.start()
+
+    def _load_preset_options_worker(self) -> None:
+        try:
+            encode_configuration = engine.get_encode_configuration()
+        except Exception as error:
+            GLib.idle_add(
+                self.status_label_widget.set_text,
+                f"Could not detect encoder presets: {error}",
+            )
+            return
+
+        GLib.idle_add(
+            self._set_preset_options,
+            u.get_preset_options(encode_configuration),
+            u.get_default_preset(encode_configuration),
+        )
+
+    def _set_preset_options(
+        self,
+        presets: list[str],
+        default_preset: str | None,
+    ) -> bool:
+        self.preset_combo_box.remove_all()
+
+        if not presets:
+            self.preset_available = False
+            self.preset_combo_box.append_text("No presets")
+            self.preset_combo_box.set_active(0)
+            self.preset_combo_box.set_sensitive(False)
+            return False
+
+        self.preset_combo_box.append_text(PRESET_DEFAULT_LABEL)
+        for preset in presets:
+            self.preset_combo_box.append_text(preset)
+
+        active_index = 0
+        if default_preset in presets:
+            active_index = presets.index(default_preset) + 1
+
+        self.preset_combo_box.set_active(active_index)
+        self.preset_available = True
+        self.preset_combo_box.set_sensitive(self.reencode_controller is None)
         return False
 
     def _build_interface(self) -> Gtk.Widget:
         root = self._create_root_box()
         root.append(self._create_title_label())
         root.append(self._create_file_row())
+        root.append(self._create_output_folder_row())
         root.append(self._create_drop_hint_label())
         root.append(self._create_quality_row())
+        root.append(self._create_preset_row())
         root.append(self._create_resolution_row())
         root.append(self._create_frame_rate_row())
         root.append(self._create_metadata_row())
@@ -275,7 +501,27 @@ class MainWindow(Gtk.ApplicationWindow):
         self.choose_button = Gtk.Button(label="Choose files")
         self.choose_button.connect("clicked", self._on_choose_file)
         file_row.append(self.choose_button)
+        self.choose_folder_button = Gtk.Button(label="Choose folder")
+        self.choose_folder_button.connect("clicked", self._on_choose_folder)
+        file_row.append(self.choose_folder_button)
         return file_row
+
+    def _create_output_folder_row(self) -> Gtk.Box:
+        output_folder_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        self.output_folder_label_widget = Gtk.Label(label="Output: source folder")
+        self.output_folder_label_widget.set_hexpand(True)
+        self.output_folder_label_widget.set_xalign(LEFT_ALIGN)
+        output_folder_row.append(self.output_folder_label_widget)
+        self.choose_output_folder_button = Gtk.Button(label="Choose output folder")
+        self.choose_output_folder_button.connect(
+            "clicked",
+            self._on_choose_output_folder,
+        )
+        output_folder_row.append(self.choose_output_folder_button)
+        return output_folder_row
 
     def _create_drop_hint_label(self) -> Gtk.Label:
         hint_label = Gtk.Label(label="Drag video files here or choose files")
@@ -304,6 +550,19 @@ class MainWindow(Gtk.ApplicationWindow):
         hint_label.add_css_class(DIM_LABEL_CSS_CLASS)
         hint_label.set_xalign(LEFT_ALIGN)
         return hint_label
+
+    def _create_preset_row(self) -> Gtk.Box:
+        preset_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        preset_row.append(Gtk.Label(label="Preset"))
+        self.preset_combo_box = Gtk.ComboBoxText()
+        self.preset_combo_box.append_text("Detecting...")
+        self.preset_combo_box.set_active(0)
+        self.preset_combo_box.set_sensitive(False)
+        preset_row.append(self.preset_combo_box)
+        return preset_row
 
     def _create_resolution_row(self) -> Gtk.Box:
         resolution_row = Gtk.Box(
@@ -365,6 +624,10 @@ class MainWindow(Gtk.ApplicationWindow):
             spacing=ROW_SPACING,
         )
         action_row.set_halign(Gtk.Align.END)
+        self.stop_button = Gtk.Button(label="Stop")
+        self.stop_button.set_sensitive(False)
+        self.stop_button.connect("clicked", self._on_stop)
+        action_row.append(self.stop_button)
         self.reencode_button = Gtk.Button(label="Reencode")
         self.reencode_button.connect("clicked", self._on_reencode)
         action_row.append(self.reencode_button)

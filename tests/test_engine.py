@@ -21,6 +21,8 @@ class FakeFFmpeg:
         self.output_path: str | None = None
         self.output_options: utils.OutputOptions | None = None
         self.progress_handler: Callable[[FakeProgress], None] | None = None
+        self.start_handler: Callable[[list[str]], None] | None = None
+        self.terminated = False
         FakeFFmpeg.instances.append(self)
 
     def option(self, option: str) -> "FakeFFmpeg":
@@ -40,17 +42,25 @@ class FakeFFmpeg:
         self.output_options = output_options
         return self
 
-    def on(self, event: str) -> Callable[[Callable[[FakeProgress], None]], None]:
-        assert event == "progress"
+    def on(self, event: str) -> Callable[[Callable[..., None]], None]:
+        assert event in {"start", "progress"}
 
-        def register(handler: Callable[[FakeProgress], None]) -> None:
-            self.progress_handler = handler
+        def register(handler: Callable[..., None]) -> None:
+            if event == "start":
+                self.start_handler = handler
+            else:
+                self.progress_handler = handler
 
         return register
 
     async def execute(self) -> None:
+        assert self.start_handler is not None
+        self.start_handler([])
         assert self.progress_handler is not None
         self.progress_handler(FakeProgress(frame=25))
+
+    def terminate(self) -> None:
+        self.terminated = True
 
 
 def use_fake_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -59,6 +69,18 @@ def use_fake_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
+        preset_options=[
+            "ultrafast",
+            "superfast",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
+        ],
+        default_preset="veryslow",
         default_options={"preset": "veryslow"},
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
@@ -113,6 +135,127 @@ def test_reencode_uses_selected_options_and_copies_metadata(
     assert output_path == input_path.absolute().with_stem("video_compressed")
     assert metadata_copies == [(input_path.absolute(), output_path)]
     assert progress_values == [0.5]
+
+
+def test_reencode_uses_selected_preset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 1080)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 60.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    asyncio.run(
+        engine.reencode(
+            tmp_path / "video.mov",
+            quality=32,
+            preset="fast",
+        )
+    )
+
+    assert FakeFFmpeg.instances[0].output_options["preset"] == "fast"
+
+
+def test_reencode_uses_output_folder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    input_path = tmp_path / "input" / "video.mov"
+    output_folder = tmp_path / "output"
+    input_path.parent.mkdir()
+    output_folder.mkdir()
+
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 1080)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 60.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    output_path = asyncio.run(
+        engine.reencode(
+            input_path,
+            quality=32,
+            output_folder=output_folder,
+        )
+    )
+
+    assert output_path == output_folder.absolute() / "video_compressed.mov"
+    assert FakeFFmpeg.instances[0].output_path == str(output_path)
+
+
+def test_reencode_adds_suffix_when_output_folder_file_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    input_path = tmp_path / "video.mov"
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+    (output_folder / "video_compressed.mov").write_text("")
+    (output_folder / "video_compressed_2.mov").write_text("")
+
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 1080)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 60.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    output_path = asyncio.run(
+        engine.reencode(
+            input_path,
+            quality=32,
+            output_folder=output_folder,
+        )
+    )
+
+    assert output_path == output_folder.absolute() / "video_compressed_3.mov"
+    assert FakeFFmpeg.instances[0].output_path == str(output_path)
+
+
+def test_reencode_controller_terminates_active_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    controller = engine.ReencodeController()
+
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 1080)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 60.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    def cancel_on_progress(_fraction: float) -> None:
+        controller.cancel()
+
+    with pytest.raises(engine.ReencodeStopped):
+        asyncio.run(
+            engine.reencode(
+                tmp_path / "video.mov",
+                quality=32,
+                progress_callback=cancel_on_progress,
+                controller=controller,
+            )
+        )
+
+    assert FakeFFmpeg.instances[0].terminated is True
+
+
+def test_reencode_does_not_start_when_controller_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    controller = engine.ReencodeController()
+    controller.cancel()
+
+    with pytest.raises(engine.ReencodeStopped):
+        asyncio.run(
+            engine.reencode(
+                tmp_path / "video.mov",
+                quality=32,
+                controller=controller,
+            )
+        )
+
+    assert FakeFFmpeg.instances == []
 
 
 def test_reencode_does_not_start_when_metadata_copy_needs_missing_exiftool(

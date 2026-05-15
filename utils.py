@@ -13,6 +13,8 @@ class EncoderDefinition:
     needs_hwupload: bool
     hwaccel: str | None
     quality_options: list[str]
+    preset_options: list[str] = field(default_factory=list)
+    default_preset: str | None = None
     default_options: OutputOptions = field(default_factory=dict)
 
 
@@ -29,6 +31,8 @@ ENCODERS: dict[str, EncoderDefinition] = {
         needs_hwupload=False,
         hwaccel="cuda",
         quality_options=["cq"],
+        preset_options=["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
+        default_preset="p7",
         default_options={"preset": "p7", "tune": "hq", "rc": "vbr"},
     ),
     "qsv": EncoderDefinition(
@@ -36,6 +40,16 @@ ENCODERS: dict[str, EncoderDefinition] = {
         needs_hwupload=False,
         hwaccel="qsv",
         quality_options=["global_quality"],
+        preset_options=[
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
+        ],
+        default_preset="veryslow",
         default_options={"preset": "veryslow"},
     ),
     "vaapi": EncoderDefinition(
@@ -64,6 +78,18 @@ ENCODERS: dict[str, EncoderDefinition] = {
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
+        preset_options=[
+            "ultrafast",
+            "superfast",
+            "veryfast",
+            "faster",
+            "fast",
+            "medium",
+            "slow",
+            "slower",
+            "veryslow",
+        ],
+        default_preset="veryslow",
         default_options={"preset": "veryslow"},
     ),
 }
@@ -81,6 +107,14 @@ PROBE_TIMEOUT_SECONDS = 10
 VIDEO_DATA_ERROR = -1
 EXIFTOOL_METADATA_COPY_ERROR = "Could not copy metadata with exiftool."
 EXIFTOOL_UNAVAILABLE_ERROR = "ExifTool is required to copy metadata."
+VIDEO_EXTENSIONS = {
+    ".avi",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".webm",
+}
 
 
 def _run(
@@ -209,6 +243,7 @@ def _output_options(
     quality: int | None,
     frame_rate: float | None = None,
     copy_metadata: bool = False,
+    preset: str | None = None,
 ) -> OutputOptions:
     options: OutputOptions = {
         "codec:v": encoder.codec,
@@ -221,6 +256,11 @@ def _output_options(
 
     if video_filter is not None:
         options["vf"] = video_filter
+
+    if preset is not None:
+        if preset not in encoder.preset_options:
+            raise ValueError(f"Unsupported preset for {encoder.codec}: {preset}")
+        options["preset"] = preset
 
     if quality is not None:
         for option in encoder.quality_options:
@@ -295,6 +335,25 @@ def get_resolution(filename: PathLike) -> int:
         return VIDEO_DATA_ERROR
 
 
+def collect_video_files(folder: PathLike) -> list[Path]:
+    return sorted(
+        (
+            path
+            for path in Path(folder).rglob("*")
+            if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
+        ),
+        key=lambda path: str(path).lower(),
+    )
+
+
+def get_preset_options(encode_configuration: EncodeConfiguration) -> list[str]:
+    return encode_configuration.encoder.preset_options.copy()
+
+
+def get_default_preset(encode_configuration: EncodeConfiguration) -> str | None:
+    return encode_configuration.encoder.default_preset
+
+
 def copy_metadata_with_exiftool(source: PathLike, output: PathLike) -> None:
     try:
         _run_exiftool(
@@ -334,6 +393,7 @@ def append_encode_options(
     quality: int | None,
     frame_rate: float | None = None,
     copy_metadata: bool = False,
+    preset: str | None = None,
 ) -> EncodeConfiguration:
     return replace(
         encode_configuration,
@@ -343,5 +403,6 @@ def append_encode_options(
             quality=quality,
             frame_rate=frame_rate,
             copy_metadata=copy_metadata,
+            preset=preset,
         ),
     )
