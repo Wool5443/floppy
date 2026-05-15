@@ -8,7 +8,7 @@ from typing import Any
 from ffmpeg import Progress
 from ffmpeg.asyncio import FFmpeg
 
-import utils as u
+from . import utils as u
 
 ENCODE_CONFIGURATION: u.EncodeConfiguration | None = None
 MIN_PROGRESS_FRAME_COUNT = 1

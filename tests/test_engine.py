@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import engine
-import utils
+from floppy import engine, utils
 
 
 class FakeProgress:

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-import utils
+from floppy import utils
 
 
 def test_append_encode_options_adds_quality_filter_and_metadata() -> None:

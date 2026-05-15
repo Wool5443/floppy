@@ -1,4 +1,4 @@
-import eta
+from floppy import eta
 
 
 def test_estimate_remaining_seconds_returns_none_before_progress() -> None:

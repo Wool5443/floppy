@@ -6,9 +6,7 @@ from typing import Any
 
 import gi
 
-import engine
-import eta
-import utils as u
+from . import engine, eta, utils as u
 
 GTK_VERSION = "4.0"
 
@@ -63,6 +61,7 @@ class FloppyApp(Gtk.Application):
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, app: FloppyApp) -> None:
         super().__init__(application=app, title="Floppy")
+        self.set_icon_name(APPLICATION_ID)
         self.set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.selected_files: list[Path] = []
         self.output_folder: Path | None = None
@@ -147,7 +146,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _on_reencode(self, _button: Gtk.Button) -> None:
         if not self.selected_files:
-            self.status_label_widget.set_text("Choose files first")
+            self.status_label_widget.set_text("Choose input first")
             return
 
         quality = self.quality_spin_button.get_value_as_int()
@@ -388,7 +387,6 @@ class MainWindow(Gtk.ApplicationWindow):
     def _set_encoding_state(self, encoding: bool) -> None:
         self.reencode_button.set_sensitive(not encoding)
         self.choose_button.set_sensitive(not encoding)
-        self.choose_folder_button.set_sensitive(not encoding)
         self.choose_output_folder_button.set_sensitive(not encoding)
         self.quality_spin_button.set_sensitive(not encoding)
         self.resolution_spin_button.set_sensitive(not encoding)
@@ -498,13 +496,33 @@ class MainWindow(Gtk.ApplicationWindow):
         self.file_label_widget.set_hexpand(True)
         self.file_label_widget.set_xalign(LEFT_ALIGN)
         file_row.append(self.file_label_widget)
-        self.choose_button = Gtk.Button(label="Choose files")
-        self.choose_button.connect("clicked", self._on_choose_file)
+
+        self.choose_button = Gtk.MenuButton(label="Choose input")
+        self.choose_button.set_popover(self._create_input_popover())
         file_row.append(self.choose_button)
-        self.choose_folder_button = Gtk.Button(label="Choose folder")
-        self.choose_folder_button.connect("clicked", self._on_choose_folder)
-        file_row.append(self.choose_folder_button)
         return file_row
+
+    def _create_input_popover(self) -> Gtk.Popover:
+        popover = Gtk.Popover()
+        input_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=ROW_SPACING,
+            margin_top=ROW_SPACING,
+            margin_bottom=ROW_SPACING,
+            margin_start=ROW_SPACING,
+            margin_end=ROW_SPACING,
+        )
+
+        choose_files_button = Gtk.Button(label="Files")
+        choose_files_button.connect("clicked", self._on_choose_file)
+        input_box.append(choose_files_button)
+
+        choose_folder_button = Gtk.Button(label="Folder")
+        choose_folder_button.connect("clicked", self._on_choose_folder)
+        input_box.append(choose_folder_button)
+
+        popover.set_child(input_box)
+        return popover
 
     def _create_output_folder_row(self) -> Gtk.Box:
         output_folder_row = Gtk.Box(
@@ -524,7 +542,7 @@ class MainWindow(Gtk.ApplicationWindow):
         return output_folder_row
 
     def _create_drop_hint_label(self) -> Gtk.Label:
-        hint_label = Gtk.Label(label="Drag video files here or choose files")
+        hint_label = Gtk.Label(label="Drag video files/folders here or choose input")
         hint_label.add_css_class(DIM_LABEL_CSS_CLASS)
         hint_label.set_xalign(LEFT_ALIGN)
         return hint_label

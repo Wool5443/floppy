@@ -6,7 +6,7 @@ GTK4 video reencoder for HEVC compression with automatic FFmpeg encoder detectio
 
 - Detects usable HEVC encoder on current machine.
 - Prefers hardware encoders when available, falls back to `libx265`.
-- Supports choosing files, choosing folders, or dragging video files.
+- Supports choosing files/folders or dragging video files/folders.
 - Reencodes files sequentially.
 - Optional quality, encoder preset, resolution, and maximum frame rate controls.
 - Optional output folder.
@@ -31,13 +31,13 @@ python -m pip install -r requirements.txt
 ## Run
 
 ```bash
-python app.py
+python -m floppy.app
 ```
 
 ## Usage
 
 1. Open app.
-2. Choose files, choose a folder, or drag video files into window.
+2. Choose input files/folder, or drag video files/folders into window.
 3. Set quality.
 4. Optional: choose encoder preset.
 5. Optional: choose output folder.
