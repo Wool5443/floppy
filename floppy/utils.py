@@ -109,7 +109,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
         ),
         "vulkan": EncoderDefinition(
             codec="hevc_vulkan",
-            needs_hwupload=True,
+            needs_hwupload=False,
             hwaccel="vulkan",
             quality_options=["qp"],
             default_options={
