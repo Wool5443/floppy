@@ -181,17 +181,38 @@ async def reencode(
 
     frame_count = u.get_frame_count(input_path)
     progress_frame_count = frame_count
+    duration_seconds = None
 
-    if output_frame_rate is not None and source_frame_rate > 0:
-        progress_frame_count = int(frame_count * output_frame_rate / source_frame_rate)
+    if frame_count < MIN_PROGRESS_FRAME_COUNT:
+        probed_duration = u.get_duration_seconds(input_path)
+        if probed_duration > 0:
+            duration_seconds = probed_duration
+            real_frame_rate = u.get_real_frame_rate(input_path)
+            if real_frame_rate > 0:
+                progress_frame_count = int(probed_duration * real_frame_rate)
+
+    if (
+        output_frame_rate is not None
+        and source_frame_rate > 0
+        and progress_frame_count >= MIN_PROGRESS_FRAME_COUNT
+    ):
+        progress_frame_count = int(
+            progress_frame_count * output_frame_rate / source_frame_rate
+        )
 
     @ffmpeg.on("progress")
     def on_progress(progress: Progress) -> None:  # pyright: ignore[reportUnusedFunction]
-        if progress_frame_count < MIN_PROGRESS_FRAME_COUNT:
+        done = None
+
+        if progress_frame_count >= MIN_PROGRESS_FRAME_COUNT:
+            done = progress.frame / progress_frame_count
+        elif duration_seconds is not None:
+            done = progress.time.total_seconds() / duration_seconds
+
+        if done is None:
             return
 
-        p = progress.frame
-        done = p / progress_frame_count
+        done = max(0.0, min(1.0, done))
 
         if progress_callback is not None:
             try:

@@ -17,6 +17,7 @@ class EncoderDefinition:
     quality_options: list[str]
     quality_min: int = 1
     quality_max: int = 51
+    hwupload_format: str = "p010"
     speed_options: dict[str, OutputOptions] = field(default_factory=dict)
     default_options: OutputOptions = field(default_factory=dict)
 
@@ -38,7 +39,7 @@ DEFAULT_VIDEO_CODEC = VIDEO_CODEC_HEVC
 ENCODE_SPEED_FAST = "fast"
 ENCODE_SPEED_BALANCED = "balanced"
 ENCODE_SPEED_BEST_COMPRESSION = "best_compression"
-DEFAULT_ENCODE_SPEED = ENCODE_SPEED_BALANCED
+DEFAULT_ENCODE_SPEED = ENCODE_SPEED_BEST_COMPRESSION
 ENCODE_SPEED_LABELS = {
     ENCODE_SPEED_FAST: "Fast",
     ENCODE_SPEED_BALANCED: "Balanced",
@@ -68,7 +69,12 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"preset": "p6"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"preset": "p7"},
             },
-            default_options={"tune": "hq", "rc": "vbr"},
+            default_options={
+                "pix_fmt": "p010le",
+                "highbitdepth": True,
+                "tune": "hq",
+                "rc": "vbr",
+            },
         ),
         "qsv": EncoderDefinition(
             codec="hevc_qsv",
@@ -80,6 +86,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"preset": "slow"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"preset": "veryslow"},
             },
+            default_options={"pix_fmt": "p010le"},
         ),
         "vaapi": EncoderDefinition(
             codec="hevc_vaapi",
@@ -98,14 +105,19 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"quality": "balanced"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"quality": "quality"},
             },
-            default_options={"usage": "high_quality"},
+            default_options={"pix_fmt": "p010le", "usage": "high_quality"},
         ),
         "vulkan": EncoderDefinition(
             codec="hevc_vulkan",
-            needs_hwupload=False,
+            needs_hwupload=True,
             hwaccel="vulkan",
             quality_options=["qp"],
-            default_options={"rc_mode": "cqp", "tune": "hq", "usage": "transcode"},
+            default_options={
+                "profile": "main10",
+                "rc_mode": "cqp",
+                "tune": "hq",
+                "usage": "transcode",
+            },
         ),
         "libx265": EncoderDefinition(
             codec="libx265",
@@ -117,6 +129,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"preset": "medium"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"preset": "slow"},
             },
+            default_options={"pix_fmt": "yuv420p10le"},
         ),
     },
     VIDEO_CODEC_AV1: {
@@ -130,7 +143,12 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"preset": "p6"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"preset": "p7"},
             },
-            default_options={"tune": "hq", "rc": "vbr"},
+            default_options={
+                "pix_fmt": "p010le",
+                "highbitdepth": True,
+                "tune": "hq",
+                "rc": "vbr",
+            },
         ),
         "qsv": EncoderDefinition(
             codec="av1_qsv",
@@ -142,6 +160,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"preset": "slow"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"preset": "veryslow"},
             },
+            default_options={"pix_fmt": "p010le"},
         ),
         "vaapi": EncoderDefinition(
             codec="av1_vaapi",
@@ -160,7 +179,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"quality": "balanced"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"quality": "quality"},
             },
-            default_options={"usage": "high_quality"},
+            default_options={"pix_fmt": "p010le", "usage": "high_quality"},
         ),
         "libsvtav1": EncoderDefinition(
             codec="libsvtav1",
@@ -173,6 +192,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"preset": "7"},
                 ENCODE_SPEED_BEST_COMPRESSION: {"preset": "4"},
             },
+            default_options={"pix_fmt": "yuv420p10le"},
         ),
         "libaom-av1": EncoderDefinition(
             codec="libaom-av1",
@@ -185,7 +205,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"cpu-used": 4},
                 ENCODE_SPEED_BEST_COMPRESSION: {"cpu-used": 2},
             },
-            default_options={"b:v": 0},
+            default_options={"pix_fmt": "yuv420p10le", "b:v": 0},
         ),
         "librav1e": EncoderDefinition(
             codec="librav1e",
@@ -198,6 +218,7 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
                 ENCODE_SPEED_BALANCED: {"speed": 6},
                 ENCODE_SPEED_BEST_COMPRESSION: {"speed": 4},
             },
+            default_options={"pix_fmt": "yuv420p10le"},
         ),
     },
 }
@@ -319,11 +340,14 @@ def _probe_args(encoder: EncoderDefinition) -> list[str]:
             _video_filter(encoder, resolution=64),  # pyright: ignore[reportArgumentType]
             "-c:v",
             encoder.codec,
-            "-f",
-            "null",
-            "-",
         ]
     )
+    for option, value in encoder.default_options.items():
+        if value is None:
+            continue
+        args.extend([f"-{option}", str(value)])
+
+    args.extend(["-f", "null", "-"])
     return args
 
 
@@ -356,7 +380,7 @@ def _video_filter(
         filters.append(f"scale=-2:{resolution}")
 
     if encoder.needs_hwupload:
-        filters.extend(["format=nv12", "hwupload"])
+        filters.extend([f"format={encoder.hwupload_format}", "hwupload"])
 
     if not filters:
         return None
@@ -426,9 +450,55 @@ def _get_video_data(
     return result
 
 
+def _get_format_data(
+    filename: PathLike,
+    field: str,
+) -> subprocess.CompletedProcess[str]:
+    result = _run_ffprobe(
+        [
+            "-v",
+            "error",
+            "-show_entries",
+            f"format={field}",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(filename),
+        ]
+    )
+    return result
+
+
 def get_frame_count(filename: PathLike) -> int:
     try:
         result = int(_get_video_data(filename, "nb_frames").stdout.strip())
+        return result
+    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
+        return VIDEO_DATA_ERROR
+
+
+def get_real_frame_rate(filename: PathLike) -> float:
+    try:
+        numerator, denominator = (
+            _get_video_data(
+                filename,
+                "r_frame_rate",
+            )
+            .stdout.strip()
+            .split("/")
+        )
+        return int(numerator) / int(denominator)
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        ValueError,
+        ZeroDivisionError,
+    ):
+        return VIDEO_DATA_ERROR
+
+
+def get_duration_seconds(filename: PathLike) -> float:
+    try:
+        result = float(_get_format_data(filename, "duration").stdout.strip())
         return result
     except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
         return VIDEO_DATA_ERROR

@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from floppy import engine, utils
 class FakeProgress:
     def __init__(self, frame: int) -> None:
         self.frame = frame
+        self.time = timedelta(seconds=5)
 
 
 class FakeFFmpeg:
@@ -73,6 +75,7 @@ def use_fake_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
             utils.ENCODE_SPEED_BALANCED: {"preset": "medium"},
             utils.ENCODE_SPEED_BEST_COMPRESSION: {"preset": "slow"},
         },
+        default_options={"pix_fmt": "yuv420p10le"},
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
@@ -128,7 +131,8 @@ def test_reencode_uses_selected_options_and_copies_metadata(
         "codec:v": "libx265",
         "map_metadata": "0",
         "map_chapters": "0",
-        "preset": "medium",
+        "pix_fmt": "yuv420p10le",
+        "preset": "slow",
         "vf": "fps=30,scale=-2:720",
         "crf": 35,
     }
@@ -170,7 +174,9 @@ def test_reencode_uses_selected_av1_codec(
         quality_max=63,
         speed_options={
             utils.ENCODE_SPEED_BALANCED: {"preset": "7"},
+            utils.ENCODE_SPEED_BEST_COMPRESSION: {"preset": "4"},
         },
+        default_options={"pix_fmt": "yuv420p10le"},
     )
     configuration = utils.EncodeConfiguration(name="libsvtav1", encoder=encoder)
     monkeypatch.setattr(
@@ -200,7 +206,8 @@ def test_reencode_uses_selected_av1_codec(
 
     assert FakeFFmpeg.instances[0].output_options == {
         "codec:v": "libsvtav1",
-        "preset": "7",
+        "pix_fmt": "yuv420p10le",
+        "preset": "4",
         "crf": 44,
     }
 
@@ -362,7 +369,8 @@ def test_reencode_keeps_source_resolution_and_fps_when_limits_are_higher(
     ffmpeg = FakeFFmpeg.instances[0]
     assert ffmpeg.output_options == {
         "codec:v": "libx265",
-        "preset": "medium",
+        "pix_fmt": "yuv420p10le",
+        "preset": "slow",
         "crf": 36,
     }
     assert metadata_copies == []
@@ -408,6 +416,52 @@ def test_reencode_ignores_progress_callback_errors(
     )
 
 
+def test_reencode_uses_duration_progress_when_frame_count_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    progress_values: list[float] = []
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 720)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 24.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: utils.VIDEO_DATA_ERROR)
+    monkeypatch.setattr(utils, "get_duration_seconds", lambda filename: 10.0)
+    monkeypatch.setattr(utils, "get_real_frame_rate", lambda filename: utils.VIDEO_DATA_ERROR)
+
+    asyncio.run(
+        engine.reencode(
+            tmp_path / "video.webm",
+            quality=30,
+            progress_callback=progress_values.append,
+        )
+    )
+
+    assert progress_values == [0.5]
+
+
+def test_reencode_estimates_frame_progress_when_frame_count_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    use_fake_configuration(monkeypatch)
+    progress_values: list[float] = []
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 720)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 24.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: utils.VIDEO_DATA_ERROR)
+    monkeypatch.setattr(utils, "get_duration_seconds", lambda filename: 10.0)
+    monkeypatch.setattr(utils, "get_real_frame_rate", lambda filename: 25.0)
+
+    asyncio.run(
+        engine.reencode(
+            tmp_path / "video.webm",
+            quality=30,
+            progress_callback=progress_values.append,
+        )
+    )
+
+    assert progress_values == [0.1]
+
+
 def test_reencode_reports_source_size_and_fps_probe_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -434,7 +488,8 @@ def test_reencode_reports_source_size_and_fps_probe_errors(
     ]
     assert FakeFFmpeg.instances[0].output_options == {
         "codec:v": "libx265",
-        "preset": "medium",
+        "pix_fmt": "yuv420p10le",
+        "preset": "slow",
         "crf": 36,
     }
 

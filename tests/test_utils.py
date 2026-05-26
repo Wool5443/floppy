@@ -14,7 +14,9 @@ def test_append_encode_options_adds_quality_filter_and_metadata() -> None:
         quality_options=["crf"],
         speed_options={
             utils.ENCODE_SPEED_BALANCED: {"preset": "medium"},
+            utils.ENCODE_SPEED_BEST_COMPRESSION: {"preset": "slow"},
         },
+        default_options={"pix_fmt": "yuv420p10le"},
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
@@ -31,7 +33,8 @@ def test_append_encode_options_adds_quality_filter_and_metadata() -> None:
         "codec:v": "libx265",
         "map_metadata": "0",
         "map_chapters": "0",
-        "preset": "medium",
+        "pix_fmt": "yuv420p10le",
+        "preset": "slow",
         "vf": "fps=30,scale=-2:720",
         "crf": 37,
     }
@@ -136,7 +139,7 @@ def test_append_encode_options_uploads_for_hw_encoder() -> None:
         quality=24,
     )
 
-    assert result.output_options["vf"] == "format=nv12,hwupload"
+    assert result.output_options["vf"] == "format=p010,hwupload"
     assert result.output_options["qp"] == 39
 
 
@@ -367,6 +370,76 @@ def test_get_frame_count_returns_error_for_invalid_output(
     )
 
     assert utils.get_frame_count("input.mov") == utils.VIDEO_DATA_ERROR
+
+
+def test_get_duration_seconds_uses_format_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_get_format_data(
+        filename: utils.PathLike,
+        field: str,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((str(filename), field))
+        return subprocess.CompletedProcess([], 0, stdout="12.5", stderr="")
+
+    monkeypatch.setattr(utils, "_get_format_data", fake_get_format_data)
+
+    assert utils.get_duration_seconds("input.webm") == 12.5
+    assert calls == [("input.webm", "duration")]
+
+
+def test_get_duration_seconds_returns_error_for_invalid_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        utils,
+        "_get_format_data",
+        lambda filename, field: subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="N/A",
+            stderr="",
+        ),
+    )
+
+    assert utils.get_duration_seconds("input.webm") == utils.VIDEO_DATA_ERROR
+
+
+def test_get_real_frame_rate_uses_r_frame_rate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_get_video_data(
+        filename: utils.PathLike,
+        field: str,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((str(filename), field))
+        return subprocess.CompletedProcess([], 0, stdout="30000/1001", stderr="")
+
+    monkeypatch.setattr(utils, "_get_video_data", fake_get_video_data)
+
+    assert utils.get_real_frame_rate("input.webm") == pytest.approx(29.97003)
+    assert calls == [("input.webm", "r_frame_rate")]
+
+
+def test_get_real_frame_rate_returns_error_for_zero_denominator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        utils,
+        "_get_video_data",
+        lambda filename, field: subprocess.CompletedProcess(
+            [],
+            0,
+            stdout="0/0",
+            stderr="",
+        ),
+    )
+
+    assert utils.get_real_frame_rate("input.webm") == utils.VIDEO_DATA_ERROR
 
 
 def test_get_frame_rate_returns_error_for_zero_denominator(

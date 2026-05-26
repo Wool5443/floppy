@@ -11,6 +11,7 @@ GTK4 video reencoder for HEVC or AV1 compression with automatic FFmpeg encoder d
 - Optional codec, quality, encode speed, resolution, and maximum frame rate controls.
 - Optional output folder.
 - Keeps source resolution/FPS when those controls are set to `0`.
+- Encodes video as 10-bit output.
 - Marks codec choices as hardware or software.
 - Can stop the current encode and skip the rest of the batch.
 - Shows per-file progress, batch count, and estimated remaining time.
@@ -68,5 +69,5 @@ AV1:  nvenc -> qsv -> vaapi -> amf -> libsvtav1 -> libaom-av1 -> librav1e
 Current encoder is printed when reencoding starts:
 
 ```text
-Using video_codec=hevc speed=balanced hwaccel=None codec=libx265
+Using video_codec=hevc speed=best_compression hwaccel=None codec=libx265
 ```
