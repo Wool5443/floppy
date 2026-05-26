@@ -11,11 +11,13 @@ from ffmpeg.asyncio import FFmpeg
 from . import utils as u
 
 logger = logging.getLogger(__name__)
-ENCODE_CONFIGURATION: u.EncodeConfiguration | None = None
+AVAILABLE_ENCODE_CONFIGURATIONS: dict[str, list[u.EncodeConfiguration]] | None = None
+ENCODE_CONFIGURATIONS: dict[str, u.EncodeConfiguration] = {}
 MIN_PROGRESS_FRAME_COUNT = 1
 ProgressCallback = Callable[[float], None]
 StatusCallback = Callable[[str], None]
 OUTPUT_SUFFIX = "_compressed"
+OUTPUT_EXTENSION = ".mp4"
 
 
 class ReencodeStopped(Exception):
@@ -61,13 +63,26 @@ class ReencodeController:
             logger.warning("Could not terminate FFmpeg: %s", error)
 
 
-def get_encode_configuration() -> u.EncodeConfiguration:
-    global ENCODE_CONFIGURATION
+def get_available_encode_configurations() -> dict[str, list[u.EncodeConfiguration]]:
+    global AVAILABLE_ENCODE_CONFIGURATIONS
 
-    if ENCODE_CONFIGURATION is None:
-        ENCODE_CONFIGURATION = u.get_encode_configuration()
+    if AVAILABLE_ENCODE_CONFIGURATIONS is None:
+        AVAILABLE_ENCODE_CONFIGURATIONS = u.get_available_encode_configurations()
 
-    return ENCODE_CONFIGURATION
+    return AVAILABLE_ENCODE_CONFIGURATIONS
+
+
+def get_encode_configuration(
+    video_codec: str = u.DEFAULT_VIDEO_CODEC,
+) -> u.EncodeConfiguration:
+    if video_codec not in ENCODE_CONFIGURATIONS:
+        configurations = get_available_encode_configurations().get(video_codec, [])
+        if not configurations:
+            ENCODE_CONFIGURATIONS[video_codec] = u.get_encode_configuration(video_codec)
+        else:
+            ENCODE_CONFIGURATIONS[video_codec] = configurations[0]
+
+    return ENCODE_CONFIGURATIONS[video_codec]
 
 
 async def reencode(
@@ -81,6 +96,7 @@ async def reencode(
     preset: str | None = None,
     controller: ReencodeController | None = None,
     output_folder: u.PathLike | None = None,
+    video_codec: str = u.DEFAULT_VIDEO_CODEC,
 ) -> Path:
     if controller is not None and controller.cancelled:
         logger.info("Reencode skipped because controller is already cancelled")
@@ -125,7 +141,7 @@ async def reencode(
         output_resolution = resolution
 
     encode_configuration = u.append_encode_options(
-        get_encode_configuration(),
+        get_encode_configuration(video_codec),
         resolution=output_resolution,
         quality=quality,
         frame_rate=output_frame_rate,
@@ -133,7 +149,8 @@ async def reencode(
         preset=preset,
     )
     logger.info(
-        "Using hwaccel=%s codec=%s",
+        "Using video_codec=%s hwaccel=%s codec=%s",
+        video_codec,
         encode_configuration.encoder.hwaccel,
         encode_configuration.encoder.codec,
     )
@@ -214,21 +231,20 @@ def _send_status(status_callback: StatusCallback | None, message: str) -> None:
 
 
 def _output_path(input_path: Path, output_folder: u.PathLike | None) -> Path:
-    suffix = input_path.suffix
-    name = input_path.name.removesuffix(suffix)
+    name = input_path.name.removesuffix(input_path.suffix)
 
     if output_folder is None:
-        return input_path.with_stem(f"{name}{OUTPUT_SUFFIX}")
+        return input_path.with_name(f"{name}{OUTPUT_SUFFIX}{OUTPUT_EXTENSION}")
 
     folder = Path(output_folder).absolute()
-    output_path = folder / f"{name}{OUTPUT_SUFFIX}{suffix}"
+    output_path = folder / f"{name}{OUTPUT_SUFFIX}{OUTPUT_EXTENSION}"
 
     if not output_path.exists():
         return output_path
 
     counter = 2
     while True:
-        candidate = folder / f"{name}{OUTPUT_SUFFIX}_{counter}{suffix}"
+        candidate = folder / f"{name}{OUTPUT_SUFFIX}_{counter}{OUTPUT_EXTENSION}"
         if not candidate.exists():
             return candidate
         counter += 1

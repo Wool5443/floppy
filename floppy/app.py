@@ -70,10 +70,14 @@ class MainWindow(Gtk.ApplicationWindow):
         self.selected_files: list[Path] = []
         self.output_folder: Path | None = None
         self.reencode_controller: engine.ReencodeController | None = None
+        self.available_encode_configurations: dict[
+            str,
+            list[u.EncodeConfiguration],
+        ] = {}
         self.preset_available = False
 
         self.set_child(self._build_interface())
-        self._load_preset_options()
+        self._load_encode_options()
 
     def _on_choose_file(self, _button: Gtk.Button) -> None:
         dialog = Gtk.FileChooserNative.new(
@@ -159,8 +163,13 @@ class MainWindow(Gtk.ApplicationWindow):
         frame_rate_value = self.frame_rate_spin_button.get_value_as_int()
         copy_metadata = self.metadata_check_button.get_active()
         preset = self._get_selected_preset()
+        video_codec = self._get_selected_video_codec()
         resolution = None
         frame_rate = None
+
+        if video_codec is None:
+            self.status_label_widget.set_text("No codec available")
+            return
 
         if resolution_value != RESOLUTION_SOURCE_SIZE:
             resolution = resolution_value
@@ -173,12 +182,13 @@ class MainWindow(Gtk.ApplicationWindow):
         self._set_encoding_state(True)
         logger.info(
             "Starting batch: files=%s quality=%s resolution=%s frame_rate=%s "
-            "copy_metadata=%s preset=%s output_folder=%s",
+            "copy_metadata=%s video_codec=%s preset=%s output_folder=%s",
             len(self.selected_files),
             quality,
             resolution,
             frame_rate,
             copy_metadata,
+            video_codec,
             preset,
             self.output_folder,
         )
@@ -191,6 +201,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 resolution,
                 frame_rate,
                 copy_metadata,
+                video_codec,
                 preset,
                 self.output_folder,
                 self.reencode_controller,
@@ -215,6 +226,7 @@ class MainWindow(Gtk.ApplicationWindow):
         resolution: int | None,
         frame_rate: float | None,
         copy_metadata: bool,
+        video_codec: str,
         preset: str | None,
         output_folder: Path | None,
         controller: engine.ReencodeController,
@@ -262,6 +274,7 @@ class MainWindow(Gtk.ApplicationWindow):
                         preset=preset,
                         controller=controller,
                         output_folder=output_folder,
+                        video_codec=video_codec,
                     )
                 )
                 completed += 1
@@ -416,8 +429,23 @@ class MainWindow(Gtk.ApplicationWindow):
         self.resolution_spin_button.set_sensitive(not encoding)
         self.frame_rate_spin_button.set_sensitive(not encoding)
         self.metadata_check_button.set_sensitive(not encoding)
+        self.codec_combo_box.set_sensitive(
+            not encoding and bool(self.available_encode_configurations)
+        )
         self.preset_combo_box.set_sensitive(not encoding and self.preset_available)
         self.stop_button.set_sensitive(encoding)
+
+    def _get_selected_video_codec(self) -> str | None:
+        active_text = self.codec_combo_box.get_active_text()
+
+        if active_text is None:
+            return None
+
+        for video_codec, label in u.VIDEO_CODEC_LABELS.items():
+            if active_text.startswith(label):
+                return video_codec
+
+        return None
 
     def _get_selected_preset(self) -> str | None:
         preset = self.preset_combo_box.get_active_text()
@@ -427,22 +455,81 @@ class MainWindow(Gtk.ApplicationWindow):
 
         return preset
 
-    def _load_preset_options(self) -> None:
-        thread = threading.Thread(target=self._load_preset_options_worker, daemon=True)
+    def _load_encode_options(self) -> None:
+        thread = threading.Thread(target=self._load_encode_options_worker, daemon=True)
         thread.start()
 
-    def _load_preset_options_worker(self) -> None:
+    def _load_encode_options_worker(self) -> None:
         try:
-            encode_configuration = engine.get_encode_configuration()
+            available_configurations = engine.get_available_encode_configurations()
         except Exception as error:
             GLib.idle_add(
                 self.status_label_widget.set_text,
-                f"Could not detect encoder presets: {error}",
+                f"Could not detect encoders: {error}",
             )
             return
 
         GLib.idle_add(
-            self._set_preset_options,
+            self._set_encode_options,
+            available_configurations,
+        )
+
+    def _set_encode_options(
+        self,
+        available_configurations: dict[str, list[u.EncodeConfiguration]],
+    ) -> bool:
+        self.available_encode_configurations = {
+            video_codec: configurations
+            for video_codec, configurations in available_configurations.items()
+            if configurations
+        }
+        self.codec_combo_box.remove_all()
+
+        for video_codec in (u.VIDEO_CODEC_HEVC, u.VIDEO_CODEC_AV1):
+            configurations = self.available_encode_configurations.get(video_codec, [])
+            if not configurations:
+                continue
+
+            selected = configurations[0]
+            self.codec_combo_box.append_text(
+                f"{u.VIDEO_CODEC_LABELS[video_codec]} ({selected.name})"
+            )
+
+        self.availability_label_widget.set_text(
+            u.format_availability_summary(available_configurations)
+        )
+
+        if not self.available_encode_configurations:
+            self.codec_combo_box.append_text("No codecs")
+            self.codec_combo_box.set_active(0)
+            self.codec_combo_box.set_sensitive(False)
+            self.reencode_button.set_sensitive(False)
+            self._set_preset_options([], None)
+            self.status_label_widget.set_text("No usable encoder found in ffmpeg.")
+            return False
+
+        self.codec_combo_box.set_active(0)
+        self.codec_combo_box.set_sensitive(self.reencode_controller is None)
+        self.reencode_button.set_sensitive(self.reencode_controller is None)
+        self._update_preset_options_for_selected_codec()
+        return False
+
+    def _on_codec_changed(self, _combo_box: Gtk.ComboBoxText) -> None:
+        self._update_preset_options_for_selected_codec()
+
+    def _update_preset_options_for_selected_codec(self) -> None:
+        video_codec = self._get_selected_video_codec()
+        if video_codec is None:
+            self._set_preset_options([], None)
+            return
+
+        configurations = self.available_encode_configurations.get(video_codec, [])
+        if not configurations:
+            self._set_preset_options([], None)
+            return
+
+        encode_configuration = configurations[0]
+        self._set_preset_options(
             u.get_preset_options(encode_configuration),
             u.get_default_preset(encode_configuration),
         )
@@ -481,6 +568,7 @@ class MainWindow(Gtk.ApplicationWindow):
         root.append(self._create_output_folder_row())
         root.append(self._create_drop_hint_label())
         root.append(self._create_quality_row())
+        root.append(self._create_codec_row())
         root.append(self._create_preset_row())
         root.append(self._create_resolution_row())
         root.append(self._create_frame_rate_row())
@@ -509,7 +597,7 @@ class MainWindow(Gtk.ApplicationWindow):
         return root
 
     def _create_title_label(self) -> Gtk.Label:
-        title = Gtk.Label(label="HEVC Reencoder")
+        title = Gtk.Label(label="Video Reencoder")
         title.add_css_class(TITLE_CSS_CLASS)
         title.set_xalign(LEFT_ALIGN)
         return title
@@ -593,6 +681,25 @@ class MainWindow(Gtk.ApplicationWindow):
         hint_label.set_xalign(LEFT_ALIGN)
         return hint_label
 
+    def _create_codec_row(self) -> Gtk.Box:
+        codec_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        codec_row.append(Gtk.Label(label="Codec"))
+        self.codec_combo_box = Gtk.ComboBoxText()
+        self.codec_combo_box.append_text("Detecting...")
+        self.codec_combo_box.set_active(0)
+        self.codec_combo_box.set_sensitive(False)
+        self.codec_combo_box.connect("changed", self._on_codec_changed)
+        codec_row.append(self.codec_combo_box)
+        self.availability_label_widget = Gtk.Label(label="Detecting acceleration...")
+        self.availability_label_widget.add_css_class(DIM_LABEL_CSS_CLASS)
+        self.availability_label_widget.set_xalign(LEFT_ALIGN)
+        self.availability_label_widget.set_hexpand(True)
+        codec_row.append(self.availability_label_widget)
+        return codec_row
+
     def _create_preset_row(self) -> Gtk.Box:
         preset_row = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
@@ -671,6 +778,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.stop_button.connect("clicked", self._on_stop)
         action_row.append(self.stop_button)
         self.reencode_button = Gtk.Button(label="Reencode")
+        self.reencode_button.set_sensitive(False)
         self.reencode_button.connect("clicked", self._on_reencode)
         action_row.append(self.reencode_button)
         return action_row

@@ -58,6 +58,30 @@ def test_append_encode_options_overrides_preset() -> None:
     assert result.output_options["preset"] == "fast"
 
 
+def test_append_encode_options_uses_encoder_preset_option_name() -> None:
+    encoder = utils.EncoderDefinition(
+        codec="libaom-av1",
+        needs_hwupload=False,
+        hwaccel=None,
+        quality_options=["crf"],
+        preset_options=["4", "5"],
+        default_preset="4",
+        preset_option="cpu-used",
+        default_options={"cpu-used": 4, "b:v": 0},
+    )
+    configuration = utils.EncodeConfiguration(name="libaom-av1", encoder=encoder)
+
+    result = utils.append_encode_options(
+        configuration,
+        resolution=None,
+        quality=30,
+        preset="5",
+    )
+
+    assert result.output_options["cpu-used"] == "5"
+    assert "preset" not in result.output_options
+
+
 def test_append_encode_options_rejects_unsupported_preset() -> None:
     encoder = utils.EncoderDefinition(
         codec="libx265",
@@ -134,6 +158,97 @@ def test_get_hevc_codecs_parses_ffmpeg_encoder_output(
     monkeypatch.setattr(utils, "_run_ffmpeg", fake_run_ffmpeg)
 
     assert utils._get_hevc_codecs() == ["libx265", "hevc_nvenc"]
+
+
+def test_get_ffmpeg_video_encoders_parses_encoder_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = """
+     V....D libx265              libx265 H.265 / HEVC
+     V..... av1_nvenc            NVIDIA NVENC av1 encoder
+     A..... mp3                  MP3 audio
+    """
+
+    monkeypatch.setattr(
+        utils,
+        "_run_ffmpeg",
+        lambda args, timeout=None: subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=output,
+            stderr="",
+        ),
+    )
+
+    assert utils._get_ffmpeg_video_encoders() == ["libx265", "av1_nvenc"]
+
+
+def test_get_available_encode_configurations_groups_by_codec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        utils,
+        "_get_ffmpeg_video_encoders",
+        lambda: ["hevc_vaapi", "libx265", "av1_nvenc", "libsvtav1"],
+    )
+    monkeypatch.setattr(utils, "_can_encode", lambda encoder: True)
+
+    result = utils.get_available_encode_configurations()
+
+    assert [configuration.name for configuration in result[utils.VIDEO_CODEC_HEVC]] == [
+        "vaapi",
+        "libx265",
+    ]
+    assert [configuration.name for configuration in result[utils.VIDEO_CODEC_AV1]] == [
+        "nvenc",
+        "libsvtav1",
+    ]
+
+
+def test_get_encode_configuration_selects_highest_priority_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        utils,
+        "get_available_encode_configurations",
+        lambda: {
+            utils.VIDEO_CODEC_HEVC: [],
+            utils.VIDEO_CODEC_AV1: [
+                utils.EncodeConfiguration(
+                    name="qsv",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_AV1][
+                        "qsv"
+                    ],
+                )
+            ],
+        },
+    )
+
+    assert utils.get_encode_configuration(utils.VIDEO_CODEC_AV1).name == "qsv"
+
+
+def test_format_availability_summary_lists_hardware_and_software() -> None:
+    result = utils.format_availability_summary(
+        {
+            utils.VIDEO_CODEC_HEVC: [
+                utils.EncodeConfiguration(
+                    name="vaapi",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_HEVC][
+                        "vaapi"
+                    ],
+                ),
+                utils.EncodeConfiguration(
+                    name="libx265",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_HEVC][
+                        "libx265"
+                    ],
+                ),
+            ],
+            utils.VIDEO_CODEC_AV1: [],
+        }
+    )
+
+    assert result == "HEVC acceleration: VAAPI, software; AV1 acceleration: none"
 
 
 def test_copy_metadata_with_exiftool_uses_expected_args(

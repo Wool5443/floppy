@@ -17,6 +17,7 @@ class EncoderDefinition:
     quality_options: list[str]
     preset_options: list[str] = field(default_factory=list)
     default_preset: str | None = None
+    preset_option: str = "preset"
     default_options: OutputOptions = field(default_factory=dict)
 
 
@@ -27,83 +28,200 @@ class EncodeConfiguration:
     output_options: OutputOptions = field(default_factory=dict)
 
 
-ENCODERS: dict[str, EncoderDefinition] = {
-    "nvenc": EncoderDefinition(
-        codec="hevc_nvenc",
-        needs_hwupload=False,
-        hwaccel="cuda",
-        quality_options=["cq"],
-        preset_options=["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
-        default_preset="p7",
-        default_options={"preset": "p7", "tune": "hq", "rc": "vbr"},
-    ),
-    "qsv": EncoderDefinition(
-        codec="hevc_qsv",
-        needs_hwupload=False,
-        hwaccel="qsv",
-        quality_options=["global_quality"],
-        preset_options=[
-            "veryfast",
-            "faster",
-            "fast",
-            "medium",
-            "slow",
-            "slower",
-            "veryslow",
-        ],
-        default_preset="veryslow",
-        default_options={"preset": "veryslow"},
-    ),
-    "vaapi": EncoderDefinition(
-        codec="hevc_vaapi",
-        needs_hwupload=True,
-        hwaccel="vaapi",
-        quality_options=["qp"],
-        default_options={"rc_mode": "CQP"},
-    ),
-    "amf": EncoderDefinition(
-        codec="hevc_amf",
-        needs_hwupload=False,
-        hwaccel="amf",
-        quality_options=["qp_i", "qp_p"],
-        default_options={"usage": "high_quality", "quality": "quality"},
-    ),
-    "vulkan": EncoderDefinition(
-        codec="hevc_vulkan",
-        needs_hwupload=False,
-        hwaccel="vulkan",
-        quality_options=["qp"],
-        default_options={"rc_mode": "cqp", "tune": "hq", "usage": "transcode"},
-    ),
-    "libx265": EncoderDefinition(
-        codec="libx265",
-        needs_hwupload=False,
-        hwaccel=None,
-        quality_options=["crf"],
-        preset_options=[
-            "ultrafast",
-            "superfast",
-            "veryfast",
-            "faster",
-            "fast",
-            "medium",
-            "slow",
-            "slower",
-            "veryslow",
-        ],
-        default_preset="veryslow",
-        default_options={"preset": "veryslow"},
-    ),
+VIDEO_CODEC_HEVC = "hevc"
+VIDEO_CODEC_AV1 = "av1"
+VIDEO_CODEC_LABELS = {
+    VIDEO_CODEC_HEVC: "HEVC",
+    VIDEO_CODEC_AV1: "AV1",
+}
+DEFAULT_VIDEO_CODEC = VIDEO_CODEC_HEVC
+HARDWARE_ACCELERATION_LABELS = {
+    "cuda": "CUDA",
+    "qsv": "QSV",
+    "vaapi": "VAAPI",
+    "amf": "AMF",
+    "vulkan": "Vulkan",
 }
 
-ENCODER_PRIORITIES: list[str] = [
-    "nvenc",
-    "qsv",
-    "vaapi",
-    "amf",
-    "vulkan",
-    "libx265",
-]
+
+ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
+    VIDEO_CODEC_HEVC: {
+        "nvenc": EncoderDefinition(
+            codec="hevc_nvenc",
+            needs_hwupload=False,
+            hwaccel="cuda",
+            quality_options=["cq"],
+            preset_options=["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
+            default_preset="p7",
+            default_options={"preset": "p7", "tune": "hq", "rc": "vbr"},
+        ),
+        "qsv": EncoderDefinition(
+            codec="hevc_qsv",
+            needs_hwupload=False,
+            hwaccel="qsv",
+            quality_options=["global_quality"],
+            preset_options=[
+                "veryfast",
+                "faster",
+                "fast",
+                "medium",
+                "slow",
+                "slower",
+                "veryslow",
+            ],
+            default_preset="veryslow",
+            default_options={"preset": "veryslow"},
+        ),
+        "vaapi": EncoderDefinition(
+            codec="hevc_vaapi",
+            needs_hwupload=True,
+            hwaccel="vaapi",
+            quality_options=["qp"],
+            default_options={"rc_mode": "CQP"},
+        ),
+        "amf": EncoderDefinition(
+            codec="hevc_amf",
+            needs_hwupload=False,
+            hwaccel="amf",
+            quality_options=["qp_i", "qp_p"],
+            default_options={"usage": "high_quality", "quality": "quality"},
+        ),
+        "vulkan": EncoderDefinition(
+            codec="hevc_vulkan",
+            needs_hwupload=False,
+            hwaccel="vulkan",
+            quality_options=["qp"],
+            default_options={"rc_mode": "cqp", "tune": "hq", "usage": "transcode"},
+        ),
+        "libx265": EncoderDefinition(
+            codec="libx265",
+            needs_hwupload=False,
+            hwaccel=None,
+            quality_options=["crf"],
+            preset_options=[
+                "ultrafast",
+                "superfast",
+                "veryfast",
+                "faster",
+                "fast",
+                "medium",
+                "slow",
+                "slower",
+                "veryslow",
+            ],
+            default_preset="veryslow",
+            default_options={"preset": "veryslow"},
+        ),
+    },
+    VIDEO_CODEC_AV1: {
+        "nvenc": EncoderDefinition(
+            codec="av1_nvenc",
+            needs_hwupload=False,
+            hwaccel="cuda",
+            quality_options=["cq"],
+            preset_options=["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
+            default_preset="p7",
+            default_options={"preset": "p7", "tune": "hq", "rc": "vbr"},
+        ),
+        "qsv": EncoderDefinition(
+            codec="av1_qsv",
+            needs_hwupload=False,
+            hwaccel="qsv",
+            quality_options=["global_quality"],
+            preset_options=[
+                "veryfast",
+                "faster",
+                "fast",
+                "medium",
+                "slow",
+                "slower",
+                "veryslow",
+            ],
+            default_preset="veryslow",
+            default_options={"preset": "veryslow"},
+        ),
+        "vaapi": EncoderDefinition(
+            codec="av1_vaapi",
+            needs_hwupload=True,
+            hwaccel="vaapi",
+            quality_options=["global_quality"],
+            default_options={"rc_mode": "CQP"},
+        ),
+        "amf": EncoderDefinition(
+            codec="av1_amf",
+            needs_hwupload=False,
+            hwaccel="amf",
+            quality_options=["qp_i", "qp_p"],
+            default_options={"usage": "high_quality", "quality": "quality"},
+        ),
+        "libsvtav1": EncoderDefinition(
+            codec="libsvtav1",
+            needs_hwupload=False,
+            hwaccel=None,
+            quality_options=["crf"],
+            preset_options=[
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9",
+                "10",
+                "11",
+                "12",
+                "13",
+            ],
+            default_preset="6",
+            default_options={"preset": "6"},
+        ),
+        "libaom-av1": EncoderDefinition(
+            codec="libaom-av1",
+            needs_hwupload=False,
+            hwaccel=None,
+            quality_options=["crf"],
+            preset_options=["0", "1", "2", "3", "4", "5", "6", "7", "8"],
+            default_preset="4",
+            preset_option="cpu-used",
+            default_options={"cpu-used": 4, "b:v": 0},
+        ),
+        "librav1e": EncoderDefinition(
+            codec="librav1e",
+            needs_hwupload=False,
+            hwaccel=None,
+            quality_options=["qp"],
+            preset_options=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+            default_preset="6",
+            preset_option="speed",
+            default_options={"speed": 6},
+        ),
+    },
+}
+
+ENCODERS = ENCODERS_BY_VIDEO_CODEC[VIDEO_CODEC_HEVC]
+ENCODER_PRIORITIES_BY_VIDEO_CODEC: dict[str, list[str]] = {
+    VIDEO_CODEC_HEVC: [
+        "nvenc",
+        "qsv",
+        "vaapi",
+        "amf",
+        "vulkan",
+        "libx265",
+    ],
+    VIDEO_CODEC_AV1: [
+        "nvenc",
+        "qsv",
+        "vaapi",
+        "amf",
+        "libsvtav1",
+        "libaom-av1",
+        "librav1e",
+    ],
+}
+ENCODER_PRIORITIES = ENCODER_PRIORITIES_BY_VIDEO_CODEC[VIDEO_CODEC_HEVC]
 VAAPI_DEVICE = Path("/dev/dri/renderD128")
 PROBE_TIMEOUT_SECONDS = 10
 VIDEO_DATA_ERROR = -1
@@ -154,7 +272,7 @@ def _run_exiftool(
     return _run("exiftool", args, timeout)
 
 
-def _get_hevc_codecs() -> list[str]:
+def _get_ffmpeg_video_encoders() -> list[str]:
     try:
         result = _run_ffmpeg(["-encoders"])
     except FileNotFoundError:
@@ -164,19 +282,30 @@ def _get_hevc_codecs() -> list[str]:
         logger.error("Could not list FFmpeg encoders: %s", error)
         return []
 
-    hevc_encoders = []
+    encoders = []
 
     for line in result.stdout.splitlines():
         line = line.strip()
 
-        if "hevc" not in line.lower() and "265" not in line.lower():
+        if not line.startswith("V"):
             continue
 
         parts = line.split()
         if len(parts) >= 2:
-            hevc_encoders.append(parts[1])
+            encoders.append(parts[1])
 
-    return hevc_encoders
+    return encoders
+
+
+def _get_hevc_codecs() -> list[str]:
+    hevc_encoders = {
+        encoder.codec for encoder in ENCODERS_BY_VIDEO_CODEC[VIDEO_CODEC_HEVC].values()
+    }
+    return [
+        encoder
+        for encoder in _get_ffmpeg_video_encoders()
+        if encoder in hevc_encoders
+    ]
 
 
 def _probe_args(encoder: EncoderDefinition) -> list[str]:
@@ -208,7 +337,7 @@ def _probe_args(encoder: EncoderDefinition) -> list[str]:
     return args
 
 
-def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
+def _can_encode(encoder: EncoderDefinition) -> bool:
     try:
         _run_ffmpeg(_probe_args(encoder), timeout=PROBE_TIMEOUT_SECONDS)
     except (
@@ -216,11 +345,15 @@ def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
     ):
-        logger.info("HEVC encoder probe failed: %s", encoder.codec)
+        logger.info("Encoder probe failed: %s", encoder.codec)
         return False
 
-    logger.info("HEVC encoder probe succeeded: %s", encoder.codec)
+    logger.info("Encoder probe succeeded: %s", encoder.codec)
     return True
+
+
+def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
+    return _can_encode(encoder)
 
 
 def _video_filter(
@@ -268,7 +401,7 @@ def _output_options(
     if preset is not None:
         if preset not in encoder.preset_options:
             raise ValueError(f"Unsupported preset for {encoder.codec}: {preset}")
-        options["preset"] = preset
+        options[encoder.preset_option] = preset
 
     if quality is not None:
         for option in encoder.quality_options:
@@ -389,18 +522,67 @@ def ensure_exiftool_available() -> None:
         raise RuntimeError(EXIFTOOL_UNAVAILABLE_ERROR) from error
 
 
-def get_encode_configuration() -> EncodeConfiguration:
-    codecs = set(_get_hevc_codecs())
-    logger.info("Detected HEVC encoder candidates: %s", sorted(codecs))
+def get_available_encode_configurations() -> dict[str, list[EncodeConfiguration]]:
+    ffmpeg_encoders = set(_get_ffmpeg_video_encoders())
+    logger.info("Detected FFmpeg video encoder candidates: %s", sorted(ffmpeg_encoders))
+    configurations: dict[str, list[EncodeConfiguration]] = {}
 
-    for name in ENCODER_PRIORITIES:
-        encoder = ENCODERS[name]
-        if encoder.codec in codecs and _can_encode_hevc(encoder):
-            logger.info("Selected HEVC encoder: %s", name)
-            return _base_configuration(name, encoder)
+    for video_codec, priorities in ENCODER_PRIORITIES_BY_VIDEO_CODEC.items():
+        configurations[video_codec] = []
+        encoders = ENCODERS_BY_VIDEO_CODEC[video_codec]
 
-    logger.error("No usable HEVC encoder found in ffmpeg")
-    raise RuntimeError("No usable HEVC encoder found in ffmpeg.")
+        for name in priorities:
+            encoder = encoders[name]
+            if encoder.codec in ffmpeg_encoders and _can_encode(encoder):
+                logger.info("Usable %s encoder: %s", video_codec, name)
+                configurations[video_codec].append(_base_configuration(name, encoder))
+
+    return configurations
+
+
+def get_encode_configuration(
+    video_codec: str = DEFAULT_VIDEO_CODEC,
+) -> EncodeConfiguration:
+    configurations = get_available_encode_configurations().get(video_codec, [])
+
+    if configurations:
+        selected = configurations[0]
+        logger.info("Selected %s encoder: %s", video_codec, selected.name)
+        return selected
+
+    label = VIDEO_CODEC_LABELS.get(video_codec, video_codec)
+    logger.error("No usable %s encoder found in ffmpeg", label)
+    raise RuntimeError(f"No usable {label} encoder found in ffmpeg.")
+
+
+def format_availability_summary(
+    configurations_by_codec: dict[str, list[EncodeConfiguration]],
+) -> str:
+    summaries = []
+
+    for video_codec in (VIDEO_CODEC_HEVC, VIDEO_CODEC_AV1):
+        configurations = configurations_by_codec.get(video_codec, [])
+        hardware = []
+        software_available = False
+
+        for configuration in configurations:
+            hwaccel = configuration.encoder.hwaccel
+            if hwaccel is None:
+                software_available = True
+            else:
+                hardware.append(HARDWARE_ACCELERATION_LABELS.get(hwaccel, hwaccel))
+
+        parts = sorted(set(hardware))
+        if software_available:
+            parts.append("software")
+        if not parts:
+            parts.append("none")
+
+        summaries.append(
+            f"{VIDEO_CODEC_LABELS[video_codec]} acceleration: {', '.join(parts)}"
+        )
+
+    return "; ".join(summaries)
 
 
 def append_encode_options(

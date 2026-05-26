@@ -84,8 +84,17 @@ def use_fake_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
-    monkeypatch.setattr(utils, "get_encode_configuration", lambda: configuration)
-    monkeypatch.setattr(engine, "ENCODE_CONFIGURATION", None)
+    monkeypatch.setattr(
+        utils,
+        "get_encode_configuration",
+        lambda video_codec=utils.DEFAULT_VIDEO_CODEC: configuration,
+    )
+    monkeypatch.setattr(
+        engine,
+        "AVAILABLE_ENCODE_CONFIGURATIONS",
+        {utils.DEFAULT_VIDEO_CODEC: [configuration]},
+    )
+    monkeypatch.setattr(engine, "ENCODE_CONFIGURATIONS", {})
     monkeypatch.setattr(engine, "FFmpeg", FakeFFmpeg)
     FakeFFmpeg.instances.clear()
 
@@ -131,7 +140,7 @@ def test_reencode_uses_selected_options_and_copies_metadata(
         "vf": "fps=30,scale=-2:720",
         "crf": 32,
     }
-    assert output_path == input_path.absolute().with_stem("video_compressed")
+    assert output_path == input_path.absolute().with_name("video_compressed.mp4")
     assert metadata_copies == [(input_path.absolute(), output_path)]
     assert progress_values == [0.5]
 
@@ -157,6 +166,52 @@ def test_reencode_uses_selected_preset(
     assert FakeFFmpeg.instances[0].output_options["preset"] == "fast"
 
 
+def test_reencode_uses_selected_av1_codec(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    encoder = utils.EncoderDefinition(
+        codec="libsvtav1",
+        needs_hwupload=False,
+        hwaccel=None,
+        quality_options=["crf"],
+        preset_options=["6"],
+        default_preset="6",
+        default_options={"preset": "6"},
+    )
+    configuration = utils.EncodeConfiguration(name="libsvtav1", encoder=encoder)
+    monkeypatch.setattr(
+        utils,
+        "get_encode_configuration",
+        lambda video_codec=utils.DEFAULT_VIDEO_CODEC: configuration,
+    )
+    monkeypatch.setattr(
+        engine,
+        "AVAILABLE_ENCODE_CONFIGURATIONS",
+        {utils.VIDEO_CODEC_AV1: [configuration]},
+    )
+    monkeypatch.setattr(engine, "ENCODE_CONFIGURATIONS", {})
+    monkeypatch.setattr(engine, "FFmpeg", FakeFFmpeg)
+    FakeFFmpeg.instances.clear()
+    monkeypatch.setattr(utils, "get_resolution", lambda filename: 1080)
+    monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 60.0)
+    monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
+
+    asyncio.run(
+        engine.reencode(
+            tmp_path / "video.mov",
+            quality=32,
+            video_codec=utils.VIDEO_CODEC_AV1,
+        )
+    )
+
+    assert FakeFFmpeg.instances[0].output_options == {
+        "codec:v": "libsvtav1",
+        "preset": "6",
+        "crf": 32,
+    }
+
+
 def test_reencode_uses_output_folder(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -179,7 +234,7 @@ def test_reencode_uses_output_folder(
         )
     )
 
-    assert output_path == output_folder.absolute() / "video_compressed.mov"
+    assert output_path == output_folder.absolute() / "video_compressed.mp4"
     assert FakeFFmpeg.instances[0].output_path == str(output_path)
 
 
@@ -191,8 +246,8 @@ def test_reencode_adds_suffix_when_output_folder_file_exists(
     input_path = tmp_path / "video.mov"
     output_folder = tmp_path / "output"
     output_folder.mkdir()
-    (output_folder / "video_compressed.mov").write_text("")
-    (output_folder / "video_compressed_2.mov").write_text("")
+    (output_folder / "video_compressed.mp4").write_text("")
+    (output_folder / "video_compressed_2.mp4").write_text("")
 
     monkeypatch.setattr(utils, "get_resolution", lambda filename: 1080)
     monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 60.0)
@@ -206,7 +261,7 @@ def test_reencode_adds_suffix_when_output_folder_file_exists(
         )
     )
 
-    assert output_path == output_folder.absolute() / "video_compressed_3.mov"
+    assert output_path == output_folder.absolute() / "video_compressed_3.mp4"
     assert FakeFFmpeg.instances[0].output_path == str(output_path)
 
 
@@ -325,14 +380,14 @@ def test_reencode_does_not_probe_encoder_on_import(
     tmp_path: Path,
 ) -> None:
     use_fake_configuration(monkeypatch)
-    monkeypatch.setattr(engine, "ENCODE_CONFIGURATION", None)
+    monkeypatch.setattr(engine, "ENCODE_CONFIGURATIONS", {})
     monkeypatch.setattr(utils, "get_resolution", lambda filename: 720)
     monkeypatch.setattr(utils, "get_frame_rate", lambda filename: 24.0)
     monkeypatch.setattr(utils, "get_frame_count", lambda filename: 100)
 
     asyncio.run(engine.reencode(tmp_path / "video.mov", quality=30))
 
-    assert engine.ENCODE_CONFIGURATION is not None
+    assert engine.ENCODE_CONFIGURATIONS[utils.DEFAULT_VIDEO_CODEC] is not None
 
 
 def test_reencode_ignores_progress_callback_errors(
@@ -355,8 +410,8 @@ def test_reencode_ignores_progress_callback_errors(
         )
     )
 
-    assert output_path == (tmp_path / "video.mov").absolute().with_stem(
-        "video_compressed"
+    assert output_path == (tmp_path / "video.mov").absolute().with_name(
+        "video_compressed.mp4"
     )
 
 
@@ -435,6 +490,6 @@ def test_reencode_ignores_status_callback_errors(
         )
     )
 
-    assert output_path == (tmp_path / "video.mov").absolute().with_stem(
-        "video_compressed"
+    assert output_path == (tmp_path / "video.mov").absolute().with_name(
+        "video_compressed.mp4"
     )
