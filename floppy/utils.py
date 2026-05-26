@@ -297,17 +297,6 @@ def _get_ffmpeg_video_encoders() -> list[str]:
     return encoders
 
 
-def _get_hevc_codecs() -> list[str]:
-    hevc_encoders = {
-        encoder.codec for encoder in ENCODERS_BY_VIDEO_CODEC[VIDEO_CODEC_HEVC].values()
-    }
-    return [
-        encoder
-        for encoder in _get_ffmpeg_video_encoders()
-        if encoder in hevc_encoders
-    ]
-
-
 def _probe_args(encoder: EncoderDefinition) -> list[str]:
     args = [
         "-loglevel",
@@ -350,10 +339,6 @@ def _can_encode(encoder: EncoderDefinition) -> bool:
 
     logger.info("Encoder probe succeeded: %s", encoder.codec)
     return True
-
-
-def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
-    return _can_encode(encoder)
 
 
 def _video_filter(
@@ -583,6 +568,26 @@ def format_availability_summary(
         )
 
     return "; ".join(summaries)
+
+
+def select_default_video_codec(
+    configurations_by_codec: dict[str, list[EncodeConfiguration]],
+) -> str | None:
+    video_codecs = (VIDEO_CODEC_HEVC, VIDEO_CODEC_AV1)
+
+    for video_codec in video_codecs:
+        if any(
+            configuration.encoder.hwaccel is not None
+            for configuration in configurations_by_codec.get(video_codec, [])
+        ):
+            return video_codec
+
+    if configurations_by_codec.get(VIDEO_CODEC_AV1):
+        return VIDEO_CODEC_AV1
+    if configurations_by_codec.get(VIDEO_CODEC_HEVC):
+        return VIDEO_CODEC_HEVC
+
+    return None
 
 
 def append_encode_options(

@@ -138,28 +138,6 @@ def test_append_encode_options_uploads_for_hw_encoder() -> None:
     assert result.output_options["qp"] == 24
 
 
-def test_get_hevc_codecs_parses_ffmpeg_encoder_output(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    output = """
-     V....D libx265              libx265 H.265 / HEVC
-     V..... hevc_nvenc           NVIDIA NVENC hevc encoder
-     A..... mp3                  MP3 audio
-    """
-
-    def fake_run_ffmpeg(
-        args: list[str],
-        timeout: float | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        assert args == ["-encoders"]
-        assert timeout is None
-        return subprocess.CompletedProcess(args, 0, stdout=output, stderr="")
-
-    monkeypatch.setattr(utils, "_run_ffmpeg", fake_run_ffmpeg)
-
-    assert utils._get_hevc_codecs() == ["libx265", "hevc_nvenc"]
-
-
 def test_get_ffmpeg_video_encoders_parses_encoder_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -216,9 +194,7 @@ def test_get_encode_configuration_selects_highest_priority_available(
             utils.VIDEO_CODEC_AV1: [
                 utils.EncodeConfiguration(
                     name="qsv",
-                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_AV1][
-                        "qsv"
-                    ],
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_AV1]["qsv"],
                 )
             ],
         },
@@ -249,6 +225,74 @@ def test_format_availability_summary_lists_hardware_and_software() -> None:
     )
 
     assert result == "HEVC acceleration: VAAPI, software; AV1 acceleration: none"
+
+
+def test_select_default_video_codec_prefers_hardware() -> None:
+    result = utils.select_default_video_codec(
+        {
+            utils.VIDEO_CODEC_HEVC: [
+                utils.EncodeConfiguration(
+                    name="libx265",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_HEVC][
+                        "libx265"
+                    ],
+                ),
+            ],
+            utils.VIDEO_CODEC_AV1: [
+                utils.EncodeConfiguration(
+                    name="vaapi",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_AV1][
+                        "vaapi"
+                    ],
+                ),
+            ],
+        }
+    )
+
+    assert result == utils.VIDEO_CODEC_AV1
+
+
+def test_select_default_video_codec_falls_back_to_av1_without_hardware() -> None:
+    result = utils.select_default_video_codec(
+        {
+            utils.VIDEO_CODEC_HEVC: [
+                utils.EncodeConfiguration(
+                    name="libx265",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_HEVC][
+                        "libx265"
+                    ],
+                ),
+            ],
+            utils.VIDEO_CODEC_AV1: [
+                utils.EncodeConfiguration(
+                    name="libsvtav1",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_AV1][
+                        "libsvtav1"
+                    ],
+                ),
+            ],
+        }
+    )
+
+    assert result == utils.VIDEO_CODEC_AV1
+
+
+def test_select_default_video_codec_uses_hevc_when_only_hevc_available() -> None:
+    result = utils.select_default_video_codec(
+        {
+            utils.VIDEO_CODEC_HEVC: [
+                utils.EncodeConfiguration(
+                    name="libx265",
+                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_HEVC][
+                        "libx265"
+                    ],
+                ),
+            ],
+            utils.VIDEO_CODEC_AV1: [],
+        }
+    )
+
+    assert result == utils.VIDEO_CODEC_HEVC
 
 
 def test_copy_metadata_with_exiftool_uses_expected_args(

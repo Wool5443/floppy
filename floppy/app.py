@@ -485,11 +485,13 @@ class MainWindow(Gtk.ApplicationWindow):
         }
         self.codec_combo_box.remove_all()
 
+        available_video_codecs = []
         for video_codec in (u.VIDEO_CODEC_HEVC, u.VIDEO_CODEC_AV1):
             configurations = self.available_encode_configurations.get(video_codec, [])
             if not configurations:
                 continue
 
+            available_video_codecs.append(video_codec)
             selected = configurations[0]
             self.codec_combo_box.append_text(
                 f"{u.VIDEO_CODEC_LABELS[video_codec]} ({selected.name})"
@@ -508,7 +510,14 @@ class MainWindow(Gtk.ApplicationWindow):
             self.status_label_widget.set_text("No usable encoder found in ffmpeg.")
             return False
 
-        self.codec_combo_box.set_active(0)
+        default_video_codec = u.select_default_video_codec(
+            self.available_encode_configurations
+        )
+        active_index = 0
+        if default_video_codec in available_video_codecs:
+            active_index = available_video_codecs.index(default_video_codec)
+
+        self.codec_combo_box.set_active(active_index)
         self.codec_combo_box.set_sensitive(self.reencode_controller is None)
         self.reencode_button.set_sensitive(self.reencode_controller is None)
         self._update_preset_options_for_selected_codec()
