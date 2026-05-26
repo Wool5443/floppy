@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 from pathlib import Path
 from time import monotonic
@@ -7,6 +8,7 @@ from typing import Any
 import gi
 
 from . import engine, eta, utils as u
+from .logging_config import configure_logging
 
 GTK_VERSION = "4.0"
 
@@ -46,6 +48,7 @@ progressbar progress {
     background: #3584e4;
 }
 """
+logger = logging.getLogger(__name__)
 
 
 class FloppyApp(Gtk.Application):
@@ -53,6 +56,7 @@ class FloppyApp(Gtk.Application):
         super().__init__(application_id=APPLICATION_ID)
 
     def do_activate(self) -> None:
+        logger.info("Activating application")
         window = MainWindow(self)
         load_css()
         window.present()
@@ -141,6 +145,7 @@ class MainWindow(Gtk.ApplicationWindow):
             if path is not None:
                 self.output_folder = Path(path)
                 self.output_folder_label_widget.set_text(self.output_folder.name)
+                logger.info("Selected output folder: %s", self.output_folder)
 
         dialog.destroy()
 
@@ -166,6 +171,17 @@ class MainWindow(Gtk.ApplicationWindow):
         self.status_label_widget.set_text("Encoding...")
         self.reencode_controller = engine.ReencodeController()
         self._set_encoding_state(True)
+        logger.info(
+            "Starting batch: files=%s quality=%s resolution=%s frame_rate=%s "
+            "copy_metadata=%s preset=%s output_folder=%s",
+            len(self.selected_files),
+            quality,
+            resolution,
+            frame_rate,
+            copy_metadata,
+            preset,
+            self.output_folder,
+        )
 
         thread = threading.Thread(
             target=self._reencode_worker,
@@ -189,6 +205,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self.stop_button.set_sensitive(False)
         self.status_label_widget.set_text("Stopping...")
+        logger.info("Stopping batch")
         self.reencode_controller.cancel()
 
     def _reencode_worker(
@@ -209,8 +226,10 @@ class MainWindow(Gtk.ApplicationWindow):
         try:
             for filename in filenames:
                 if controller.cancelled:
+                    logger.info("Batch cancelled before next file")
                     break
 
+                logger.info("Encoding file %s/%s: %s", completed + 1, total, filename)
                 GLib.idle_add(self._set_progress, PROGRESS_MIN)
                 GLib.idle_add(
                     self.status_label_widget.set_text,
@@ -246,18 +265,22 @@ class MainWindow(Gtk.ApplicationWindow):
                     )
                 )
                 completed += 1
+                logger.info("Completed file %s/%s: %s", completed, total, filename)
                 GLib.idle_add(
                     self.status_label_widget.set_text,
                     f"{completed}/{total} reencoded",
                 )
                 GLib.idle_add(self._set_progress, PROGRESS_MAX)
         except engine.ReencodeStopped:
+            logger.info("Batch stopped after %s/%s files", completed, total)
             GLib.idle_add(self._finish_reencode, completed, total, None, True)
             return
         except Exception as error:
+            logger.exception("Batch failed after %s/%s files", completed, total)
             GLib.idle_add(self._finish_reencode, completed, total, str(error), False)
             return
 
+        logger.info("Batch finished: %s/%s files", completed, total)
         GLib.idle_add(self._finish_reencode, completed, total, None, controller.cancelled)
 
     def _on_files_dropped(
@@ -292,6 +315,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def _set_selected_files(self, paths: list[Path]) -> None:
         self.selected_files = paths
         self.status_label_widget.set_text("")
+        logger.info("Selected input files: %s", len(paths))
 
         match len(paths):
             case 0:
@@ -653,6 +677,8 @@ class MainWindow(Gtk.ApplicationWindow):
 
 
 def main() -> int:
+    configure_logging()
+    logger.info("Starting Floppy")
     app = FloppyApp()
     return app.run()
 

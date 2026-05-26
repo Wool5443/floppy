@@ -1,7 +1,7 @@
 import asyncio
+import logging
 from collections.abc import Callable
 from pathlib import Path
-from sys import stderr
 from threading import Lock
 from typing import Any
 
@@ -10,6 +10,7 @@ from ffmpeg.asyncio import FFmpeg
 
 from . import utils as u
 
+logger = logging.getLogger(__name__)
 ENCODE_CONFIGURATION: u.EncodeConfiguration | None = None
 MIN_PROGRESS_FRAME_COUNT = 1
 ProgressCallback = Callable[[float], None]
@@ -57,7 +58,7 @@ class ReencodeController:
         try:
             ffmpeg.terminate()
         except Exception as error:
-            print(f"Could not terminate FFmpeg: {error}", file=stderr)
+            logger.warning("Could not terminate FFmpeg: %s", error)
 
 
 def get_encode_configuration() -> u.EncodeConfiguration:
@@ -82,11 +83,13 @@ async def reencode(
     output_folder: u.PathLike | None = None,
 ) -> Path:
     if controller is not None and controller.cancelled:
+        logger.info("Reencode skipped because controller is already cancelled")
         raise ReencodeStopped
 
     input_path = Path(filename).absolute()
 
     if copy_metadata:
+        logger.info("Checking ExifTool before metadata copy")
         u.ensure_exiftool_available()
 
     source_resolution = u.get_resolution(input_path)
@@ -103,13 +106,16 @@ async def reencode(
         and source_resolution_failed
         and source_frame_rate_failed
     ):
+        logger.warning("Could not read source size/FPS for %s", input_path)
         _send_status(
             status_callback,
             "Could not read source size/FPS, keeping source size/FPS",
         )
     elif resolution is not None and source_resolution_failed:
+        logger.warning("Could not read source size for %s", input_path)
         _send_status(status_callback, "Could not read source size, keeping source size")
     elif frame_rate is not None and source_frame_rate_failed:
+        logger.warning("Could not read source FPS for %s", input_path)
         _send_status(status_callback, "Could not read source FPS, keeping source FPS")
 
     if frame_rate is not None and source_frame_rate > frame_rate:
@@ -126,13 +132,14 @@ async def reencode(
         copy_metadata=copy_metadata,
         preset=preset,
     )
-    print(
-        "Using "
-        f"hwaccel={encode_configuration.encoder.hwaccel} "
-        f"codec={encode_configuration.encoder.codec}"
+    logger.info(
+        "Using hwaccel=%s codec=%s",
+        encode_configuration.encoder.hwaccel,
+        encode_configuration.encoder.codec,
     )
 
     output_path = _output_path(input_path, output_folder)
+    logger.info("Reencoding %s to %s", input_path, output_path)
 
     ffmpeg = (
         FFmpeg()
@@ -147,6 +154,7 @@ async def reencode(
         controller.set_active_ffmpeg(ffmpeg)
         if controller.cancelled:
             controller.clear_active_ffmpeg(ffmpeg)
+            logger.info("Reencode stopped before FFmpeg start: %s", input_path)
             raise ReencodeStopped
 
     @ffmpeg.on("start")
@@ -172,9 +180,9 @@ async def reencode(
             try:
                 progress_callback(done)
             except Exception as error:
-                print(f"Progress callback failed: {error}", file=stderr)
+                logger.warning("Progress callback failed: %s", error)
         else:
-            print(f"{done * 100:0.2f}%")
+            logger.debug("Progress for %s: %.2f%%", input_path, done * 100)
 
     try:
         await ffmpeg.execute()
@@ -183,23 +191,26 @@ async def reencode(
             controller.clear_active_ffmpeg(ffmpeg)
 
     if controller is not None and controller.cancelled:
+        logger.info("Reencode stopped: %s", input_path)
         raise ReencodeStopped
 
     if copy_metadata:
+        logger.info("Copying metadata to %s", output_path)
         u.copy_metadata_with_exiftool(input_path, output_path)
 
+    logger.info("Finished reencoding %s", output_path)
     return output_path
 
 
 def _send_status(status_callback: StatusCallback | None, message: str) -> None:
     if status_callback is None:
-        print(message)
+        logger.info(message)
         return
 
     try:
         status_callback(message)
     except Exception as error:
-        print(f"Status callback failed: {error}", file=stderr)
+        logger.warning("Status callback failed: %s", error)
 
 
 def _output_path(input_path: Path, output_folder: u.PathLike | None) -> Path:

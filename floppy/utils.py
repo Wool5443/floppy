@@ -1,3 +1,4 @@
+import logging
 import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -5,6 +6,7 @@ from pathlib import Path
 OptionValue = str | int | float | bool | None
 OutputOptions = dict[str, OptionValue]
 PathLike = str | Path
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -155,7 +157,11 @@ def _run_exiftool(
 def _get_hevc_codecs() -> list[str]:
     try:
         result = _run_ffmpeg(["-encoders"])
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except FileNotFoundError:
+        logger.error("FFmpeg executable not found")
+        return []
+    except subprocess.CalledProcessError as error:
+        logger.error("Could not list FFmpeg encoders: %s", error)
         return []
 
     hevc_encoders = []
@@ -210,8 +216,10 @@ def _can_encode_hevc(encoder: EncoderDefinition) -> bool:
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
     ):
+        logger.info("HEVC encoder probe failed: %s", encoder.codec)
         return False
 
+    logger.info("HEVC encoder probe succeeded: %s", encoder.codec)
     return True
 
 
@@ -336,7 +344,7 @@ def get_resolution(filename: PathLike) -> int:
 
 
 def collect_video_files(folder: PathLike) -> list[Path]:
-    return sorted(
+    files = sorted(
         (
             path
             for path in Path(folder).rglob("*")
@@ -344,6 +352,8 @@ def collect_video_files(folder: PathLike) -> list[Path]:
         ),
         key=lambda path: str(path).lower(),
     )
+    logger.info("Collected %s video files from %s", len(files), folder)
+    return files
 
 
 def get_preset_options(encode_configuration: EncodeConfiguration) -> list[str]:
@@ -356,6 +366,7 @@ def get_default_preset(encode_configuration: EncodeConfiguration) -> str | None:
 
 def copy_metadata_with_exiftool(source: PathLike, output: PathLike) -> None:
     try:
+        logger.info("Copying metadata with ExifTool: %s -> %s", source, output)
         _run_exiftool(
             [
                 "-overwrite_original",
@@ -366,6 +377,7 @@ def copy_metadata_with_exiftool(source: PathLike, output: PathLike) -> None:
             ]
         )
     except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        logger.error("ExifTool metadata copy failed: %s", error)
         raise RuntimeError(EXIFTOOL_METADATA_COPY_ERROR) from error
 
 
@@ -373,17 +385,21 @@ def ensure_exiftool_available() -> None:
     try:
         _run_exiftool(["-ver"])
     except (FileNotFoundError, subprocess.CalledProcessError) as error:
+        logger.error("ExifTool is unavailable: %s", error)
         raise RuntimeError(EXIFTOOL_UNAVAILABLE_ERROR) from error
 
 
 def get_encode_configuration() -> EncodeConfiguration:
     codecs = set(_get_hevc_codecs())
+    logger.info("Detected HEVC encoder candidates: %s", sorted(codecs))
 
     for name in ENCODER_PRIORITIES:
         encoder = ENCODERS[name]
         if encoder.codec in codecs and _can_encode_hevc(encoder):
+            logger.info("Selected HEVC encoder: %s", name)
             return _base_configuration(name, encoder)
 
+    logger.error("No usable HEVC encoder found in ffmpeg")
     raise RuntimeError("No usable HEVC encoder found in ffmpeg.")
 
 
