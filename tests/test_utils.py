@@ -12,8 +12,9 @@ def test_append_encode_options_adds_quality_filter_and_metadata() -> None:
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
-        preset_options=["slow", "veryslow"],
-        default_options={"preset": "veryslow"},
+        speed_options={
+            utils.ENCODE_SPEED_BALANCED: {"preset": "medium"},
+        },
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
@@ -30,21 +31,23 @@ def test_append_encode_options_adds_quality_filter_and_metadata() -> None:
         "codec:v": "libx265",
         "map_metadata": "0",
         "map_chapters": "0",
-        "preset": "veryslow",
+        "preset": "medium",
         "vf": "fps=30,scale=-2:720",
-        "crf": 28,
+        "crf": 37,
     }
 
 
-def test_append_encode_options_overrides_preset() -> None:
+def test_append_encode_options_sets_speed_option() -> None:
     encoder = utils.EncoderDefinition(
         codec="libx265",
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
-        preset_options=["fast", "medium", "slow"],
-        default_preset="medium",
-        default_options={"preset": "medium"},
+        speed_options={
+            utils.ENCODE_SPEED_FAST: {"preset": "fast"},
+            utils.ENCODE_SPEED_BALANCED: {"preset": "medium"},
+            utils.ENCODE_SPEED_BEST_COMPRESSION: {"preset": "slow"},
+        },
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
@@ -52,21 +55,21 @@ def test_append_encode_options_overrides_preset() -> None:
         configuration,
         resolution=None,
         quality=28,
-        preset="fast",
+        speed=utils.ENCODE_SPEED_FAST,
     )
 
     assert result.output_options["preset"] == "fast"
 
 
-def test_append_encode_options_uses_encoder_preset_option_name() -> None:
+def test_append_encode_options_uses_encoder_speed_option_name() -> None:
     encoder = utils.EncoderDefinition(
         codec="libaom-av1",
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
-        preset_options=["4", "5"],
-        default_preset="4",
-        preset_option="cpu-used",
+        speed_options={
+            utils.ENCODE_SPEED_BALANCED: {"cpu-used": 5},
+        },
         default_options={"cpu-used": 4, "b:v": 0},
     )
     configuration = utils.EncodeConfiguration(name="libaom-av1", encoder=encoder)
@@ -75,29 +78,28 @@ def test_append_encode_options_uses_encoder_preset_option_name() -> None:
         configuration,
         resolution=None,
         quality=30,
-        preset="5",
+        speed=utils.ENCODE_SPEED_BALANCED,
     )
 
-    assert result.output_options["cpu-used"] == "5"
+    assert result.output_options["cpu-used"] == 5
     assert "preset" not in result.output_options
 
 
-def test_append_encode_options_rejects_unsupported_preset() -> None:
+def test_append_encode_options_rejects_unsupported_speed() -> None:
     encoder = utils.EncoderDefinition(
         codec="libx265",
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
-        preset_options=["fast"],
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
-    with pytest.raises(ValueError, match="Unsupported preset"):
+    with pytest.raises(ValueError, match="Unsupported encode speed"):
         utils.append_encode_options(
             configuration,
             resolution=None,
             quality=28,
-            preset="slow",
+            speed="slow",
         )
 
 
@@ -135,7 +137,7 @@ def test_append_encode_options_uploads_for_hw_encoder() -> None:
     )
 
     assert result.output_options["vf"] == "format=nv12,hwupload"
-    assert result.output_options["qp"] == 24
+    assert result.output_options["qp"] == 39
 
 
 def test_get_ffmpeg_video_encoders_parses_encoder_output(
@@ -201,30 +203,6 @@ def test_get_encode_configuration_selects_highest_priority_available(
     )
 
     assert utils.get_encode_configuration(utils.VIDEO_CODEC_AV1).name == "qsv"
-
-
-def test_format_availability_summary_lists_hardware_and_software() -> None:
-    result = utils.format_availability_summary(
-        {
-            utils.VIDEO_CODEC_HEVC: [
-                utils.EncodeConfiguration(
-                    name="vaapi",
-                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_HEVC][
-                        "vaapi"
-                    ],
-                ),
-                utils.EncodeConfiguration(
-                    name="libx265",
-                    encoder=utils.ENCODERS_BY_VIDEO_CODEC[utils.VIDEO_CODEC_HEVC][
-                        "libx265"
-                    ],
-                ),
-            ],
-            utils.VIDEO_CODEC_AV1: [],
-        }
-    )
-
-    assert result == "HEVC acceleration: VAAPI, software; AV1 acceleration: none"
 
 
 def test_select_default_video_codec_prefers_hardware() -> None:
@@ -439,19 +417,27 @@ def test_collect_video_files_recursively_filters_and_sorts(tmp_path: Path) -> No
     assert utils.collect_video_files(folder) == [first, second]
 
 
-def test_get_preset_options_returns_copy() -> None:
+def test_map_user_quality_inverts_for_backend_quality() -> None:
     encoder = utils.EncoderDefinition(
         codec="libx265",
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
-        preset_options=["fast", "medium"],
-        default_preset="medium",
     )
-    configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
-    presets = utils.get_preset_options(configuration)
-    presets.append("slow")
+    assert utils.map_user_quality(encoder, 100) == 1
+    assert utils.map_user_quality(encoder, 60) == 21
+    assert utils.map_user_quality(encoder, 1) == 51
 
-    assert utils.get_preset_options(configuration) == ["fast", "medium"]
-    assert utils.get_default_preset(configuration) == "medium"
+
+def test_map_user_quality_clamps_to_user_range() -> None:
+    encoder = utils.EncoderDefinition(
+        codec="libsvtav1",
+        needs_hwupload=False,
+        hwaccel=None,
+        quality_options=["crf"],
+        quality_max=63,
+    )
+
+    assert utils.map_user_quality(encoder, 200) == 1
+    assert utils.map_user_quality(encoder, -10) == 63

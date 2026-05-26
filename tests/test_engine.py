@@ -68,19 +68,11 @@ def use_fake_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
-        preset_options=[
-            "ultrafast",
-            "superfast",
-            "veryfast",
-            "faster",
-            "fast",
-            "medium",
-            "slow",
-            "slower",
-            "veryslow",
-        ],
-        default_preset="veryslow",
-        default_options={"preset": "veryslow"},
+        speed_options={
+            utils.ENCODE_SPEED_FAST: {"preset": "fast"},
+            utils.ENCODE_SPEED_BALANCED: {"preset": "medium"},
+            utils.ENCODE_SPEED_BEST_COMPRESSION: {"preset": "slow"},
+        },
     )
     configuration = utils.EncodeConfiguration(name="libx265", encoder=encoder)
 
@@ -136,16 +128,16 @@ def test_reencode_uses_selected_options_and_copies_metadata(
         "codec:v": "libx265",
         "map_metadata": "0",
         "map_chapters": "0",
-        "preset": "veryslow",
+        "preset": "medium",
         "vf": "fps=30,scale=-2:720",
-        "crf": 32,
+        "crf": 35,
     }
     assert output_path == input_path.absolute().with_name("video_compressed.mp4")
     assert metadata_copies == [(input_path.absolute(), output_path)]
     assert progress_values == [0.5]
 
 
-def test_reencode_uses_selected_preset(
+def test_reencode_uses_selected_speed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -159,7 +151,7 @@ def test_reencode_uses_selected_preset(
         engine.reencode(
             tmp_path / "video.mov",
             quality=32,
-            preset="fast",
+            speed=utils.ENCODE_SPEED_FAST,
         )
     )
 
@@ -175,9 +167,10 @@ def test_reencode_uses_selected_av1_codec(
         needs_hwupload=False,
         hwaccel=None,
         quality_options=["crf"],
-        preset_options=["6"],
-        default_preset="6",
-        default_options={"preset": "6"},
+        quality_max=63,
+        speed_options={
+            utils.ENCODE_SPEED_BALANCED: {"preset": "7"},
+        },
     )
     configuration = utils.EncodeConfiguration(name="libsvtav1", encoder=encoder)
     monkeypatch.setattr(
@@ -207,8 +200,8 @@ def test_reencode_uses_selected_av1_codec(
 
     assert FakeFFmpeg.instances[0].output_options == {
         "codec:v": "libsvtav1",
-        "preset": "6",
-        "crf": 32,
+        "preset": "7",
+        "crf": 44,
     }
 
 
@@ -369,8 +362,8 @@ def test_reencode_keeps_source_resolution_and_fps_when_limits_are_higher(
     ffmpeg = FakeFFmpeg.instances[0]
     assert ffmpeg.output_options == {
         "codec:v": "libx265",
-        "preset": "veryslow",
-        "crf": 30,
+        "preset": "medium",
+        "crf": 36,
     }
     assert metadata_copies == []
 
@@ -441,8 +434,8 @@ def test_reencode_reports_source_size_and_fps_probe_errors(
     ]
     assert FakeFFmpeg.instances[0].output_options == {
         "codec:v": "libx265",
-        "preset": "veryslow",
-        "crf": 30,
+        "preset": "medium",
+        "crf": 36,
     }
 
 

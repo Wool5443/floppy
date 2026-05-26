@@ -92,7 +92,7 @@ async def reencode(
     copy_metadata: bool = False,
     progress_callback: ProgressCallback | None = None,
     status_callback: StatusCallback | None = None,
-    preset: str | None = None,
+    speed: str = u.DEFAULT_ENCODE_SPEED,
     controller: ReencodeController | None = None,
     output_folder: u.PathLike | None = None,
     video_codec: str = u.DEFAULT_VIDEO_CODEC,
@@ -145,11 +145,12 @@ async def reencode(
         quality=quality,
         frame_rate=output_frame_rate,
         copy_metadata=copy_metadata,
-        preset=preset,
+        speed=speed,
     )
     logger.info(
-        "Using video_codec=%s hwaccel=%s codec=%s",
+        "Using video_codec=%s speed=%s hwaccel=%s codec=%s",
         video_codec,
+        speed,
         encode_configuration.encoder.hwaccel,
         encode_configuration.encoder.codec,
     )

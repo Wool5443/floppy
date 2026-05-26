@@ -8,10 +8,10 @@ GTK4 video reencoder for HEVC or AV1 compression with automatic FFmpeg encoder d
 - Prefers hardware encoders when available, falls back to software encoders.
 - Supports choosing files/folders or dragging video files/folders.
 - Reencodes files sequentially.
-- Optional codec, quality, encoder preset, resolution, and maximum frame rate controls.
+- Optional codec, quality, encode speed, resolution, and maximum frame rate controls.
 - Optional output folder.
 - Keeps source resolution/FPS when those controls are set to `0`.
-- Shows available acceleration for HEVC and AV1 before encoding.
+- Marks codec choices as hardware or software.
 - Can stop the current encode and skip the rest of the batch.
 - Shows per-file progress, batch count, and estimated remaining time.
 
@@ -39,9 +39,9 @@ python -m floppy.app
 
 1. Open app.
 2. Choose input files/folder, or drag video files/folders into window.
-3. Set quality.
-4. Choose HEVC or AV1 codec.
-5. Optional: choose encoder preset.
+3. Set quality. Higher values keep more detail.
+4. Choose encode speed.
+5. Choose HEVC or AV1 codec. Each choice is marked as hardware or software.
 6. Optional: choose output folder.
 7. Optional: set output resolution. `0` keeps source size.
 8. Optional: set maximum frame rate. `0` keeps source FPS.
@@ -68,5 +68,5 @@ AV1:  nvenc -> qsv -> vaapi -> amf -> libsvtav1 -> libaom-av1 -> librav1e
 Current encoder is printed when reencoding starts:
 
 ```text
-Using video_codec=hevc hwaccel=None codec=libx265
+Using video_codec=hevc speed=balanced hwaccel=None codec=libx265
 ```

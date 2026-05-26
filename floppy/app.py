@@ -29,9 +29,9 @@ SECTION_SPACING = 12
 ROW_SPACING = 8
 LEFT_ALIGN = 0
 QUALITY_MIN = 1
-QUALITY_MAX = 51
+QUALITY_MAX = 100
 QUALITY_STEP = 1
-DEFAULT_QUALITY = 30
+DEFAULT_QUALITY = 60
 RESOLUTION_SOURCE_SIZE = 0
 RESOLUTION_MAX = 7680
 RESOLUTION_STEP = 1
@@ -42,7 +42,6 @@ TITLE_CSS_CLASS = "title-1"
 DIM_LABEL_CSS_CLASS = "dim-label"
 PROGRESS_MIN = 0.0
 PROGRESS_MAX = 1.0
-PRESET_DEFAULT_LABEL = "Default"
 APP_CSS = """
 progressbar progress {
     background: #3584e4;
@@ -74,7 +73,6 @@ class MainWindow(Gtk.ApplicationWindow):
             str,
             list[u.EncodeConfiguration],
         ] = {}
-        self.preset_available = False
 
         self.set_child(self._build_interface())
         self._load_encode_options()
@@ -158,11 +156,11 @@ class MainWindow(Gtk.ApplicationWindow):
             self.status_label_widget.set_text("Choose input first")
             return
 
-        quality = self.quality_spin_button.get_value_as_int()
+        quality = round(self.quality_scale.get_value())
         resolution_value = self.resolution_spin_button.get_value_as_int()
         frame_rate_value = self.frame_rate_spin_button.get_value_as_int()
         copy_metadata = self.metadata_check_button.get_active()
-        preset = self._get_selected_preset()
+        speed = self._get_selected_speed()
         video_codec = self._get_selected_video_codec()
         resolution = None
         frame_rate = None
@@ -182,14 +180,14 @@ class MainWindow(Gtk.ApplicationWindow):
         self._set_encoding_state(True)
         logger.info(
             "Starting batch: files=%s quality=%s resolution=%s frame_rate=%s "
-            "copy_metadata=%s video_codec=%s preset=%s output_folder=%s",
+            "copy_metadata=%s video_codec=%s speed=%s output_folder=%s",
             len(self.selected_files),
             quality,
             resolution,
             frame_rate,
             copy_metadata,
             video_codec,
-            preset,
+            speed,
             self.output_folder,
         )
 
@@ -202,7 +200,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 frame_rate,
                 copy_metadata,
                 video_codec,
-                preset,
+                speed,
                 self.output_folder,
                 self.reencode_controller,
             ),
@@ -227,7 +225,7 @@ class MainWindow(Gtk.ApplicationWindow):
         frame_rate: float | None,
         copy_metadata: bool,
         video_codec: str,
-        preset: str | None,
+        speed: str,
         output_folder: Path | None,
         controller: engine.ReencodeController,
     ) -> None:
@@ -271,7 +269,7 @@ class MainWindow(Gtk.ApplicationWindow):
                             batch_started_at,
                         ),
                         status_callback=status_callback,
-                        preset=preset,
+                        speed=speed,
                         controller=controller,
                         output_folder=output_folder,
                         video_codec=video_codec,
@@ -425,14 +423,14 @@ class MainWindow(Gtk.ApplicationWindow):
         self.reencode_button.set_sensitive(not encoding)
         self.choose_button.set_sensitive(not encoding)
         self.choose_output_folder_button.set_sensitive(not encoding)
-        self.quality_spin_button.set_sensitive(not encoding)
+        self.quality_scale.set_sensitive(not encoding)
         self.resolution_spin_button.set_sensitive(not encoding)
         self.frame_rate_spin_button.set_sensitive(not encoding)
         self.metadata_check_button.set_sensitive(not encoding)
         self.codec_combo_box.set_sensitive(
             not encoding and bool(self.available_encode_configurations)
         )
-        self.preset_combo_box.set_sensitive(not encoding and self.preset_available)
+        self.speed_combo_box.set_sensitive(not encoding)
         self.stop_button.set_sensitive(encoding)
 
     def _get_selected_video_codec(self) -> str | None:
@@ -447,13 +445,14 @@ class MainWindow(Gtk.ApplicationWindow):
 
         return None
 
-    def _get_selected_preset(self) -> str | None:
-        preset = self.preset_combo_box.get_active_text()
+    def _get_selected_speed(self) -> str:
+        speed = self.speed_combo_box.get_active_text()
 
-        if preset is None or preset == PRESET_DEFAULT_LABEL:
-            return None
+        for speed_value, label in u.ENCODE_SPEED_LABELS.items():
+            if speed == label:
+                return speed_value
 
-        return preset
+        return u.DEFAULT_ENCODE_SPEED
 
     def _load_encode_options(self) -> None:
         thread = threading.Thread(target=self._load_encode_options_worker, daemon=True)
@@ -493,20 +492,16 @@ class MainWindow(Gtk.ApplicationWindow):
 
             available_video_codecs.append(video_codec)
             selected = configurations[0]
+            acceleration = self._encode_configuration_acceleration_label(selected)
             self.codec_combo_box.append_text(
-                f"{u.VIDEO_CODEC_LABELS[video_codec]} ({selected.name})"
+                f"{u.VIDEO_CODEC_LABELS[video_codec]} ({acceleration})"
             )
-
-        self.availability_label_widget.set_text(
-            u.format_availability_summary(available_configurations)
-        )
 
         if not self.available_encode_configurations:
             self.codec_combo_box.append_text("No codecs")
             self.codec_combo_box.set_active(0)
             self.codec_combo_box.set_sensitive(False)
             self.reencode_button.set_sensitive(False)
-            self._set_preset_options([], None)
             self.status_label_widget.set_text("No usable encoder found in ffmpeg.")
             return False
 
@@ -520,55 +515,18 @@ class MainWindow(Gtk.ApplicationWindow):
         self.codec_combo_box.set_active(active_index)
         self.codec_combo_box.set_sensitive(self.reencode_controller is None)
         self.reencode_button.set_sensitive(self.reencode_controller is None)
-        self._update_preset_options_for_selected_codec()
         return False
 
-    def _on_codec_changed(self, _combo_box: Gtk.ComboBoxText) -> None:
-        self._update_preset_options_for_selected_codec()
-
-    def _update_preset_options_for_selected_codec(self) -> None:
-        video_codec = self._get_selected_video_codec()
-        if video_codec is None:
-            self._set_preset_options([], None)
-            return
-
-        configurations = self.available_encode_configurations.get(video_codec, [])
-        if not configurations:
-            self._set_preset_options([], None)
-            return
-
-        encode_configuration = configurations[0]
-        self._set_preset_options(
-            u.get_preset_options(encode_configuration),
-            u.get_default_preset(encode_configuration),
-        )
-
-    def _set_preset_options(
+    def _encode_configuration_acceleration_label(
         self,
-        presets: list[str],
-        default_preset: str | None,
-    ) -> bool:
-        self.preset_combo_box.remove_all()
+        configuration: u.EncodeConfiguration,
+    ) -> str:
+        hwaccel = configuration.encoder.hwaccel
+        if hwaccel is None:
+            return "software"
 
-        if not presets:
-            self.preset_available = False
-            self.preset_combo_box.append_text("No presets")
-            self.preset_combo_box.set_active(0)
-            self.preset_combo_box.set_sensitive(False)
-            return False
-
-        self.preset_combo_box.append_text(PRESET_DEFAULT_LABEL)
-        for preset in presets:
-            self.preset_combo_box.append_text(preset)
-
-        active_index = 0
-        if default_preset in presets:
-            active_index = presets.index(default_preset) + 1
-
-        self.preset_combo_box.set_active(active_index)
-        self.preset_available = True
-        self.preset_combo_box.set_sensitive(self.reencode_controller is None)
-        return False
+        label = u.HARDWARE_ACCELERATION_LABELS.get(hwaccel, hwaccel)
+        return f"hardware: {label}"
 
     def _build_interface(self) -> Gtk.Widget:
         root = self._create_root_box()
@@ -577,8 +535,8 @@ class MainWindow(Gtk.ApplicationWindow):
         root.append(self._create_output_folder_row())
         root.append(self._create_drop_hint_label())
         root.append(self._create_quality_row())
+        root.append(self._create_speed_row())
         root.append(self._create_codec_row())
-        root.append(self._create_preset_row())
         root.append(self._create_resolution_row())
         root.append(self._create_frame_rate_row())
         root.append(self._create_metadata_row())
@@ -674,21 +632,39 @@ class MainWindow(Gtk.ApplicationWindow):
             spacing=ROW_SPACING,
         )
         quality_row.append(Gtk.Label(label="Quality"))
-        self.quality_spin_button = Gtk.SpinButton.new_with_range(
+        quality_row.append(self._create_quality_bound_label("Lower quality"))
+        self.quality_scale = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL,
             QUALITY_MIN,
             QUALITY_MAX,
             QUALITY_STEP,
         )
-        self.quality_spin_button.set_value(DEFAULT_QUALITY)
-        quality_row.append(self.quality_spin_button)
-        quality_row.append(self._create_quality_hint_label())
+        self.quality_scale.set_value(DEFAULT_QUALITY)
+        self.quality_scale.set_digits(0)
+        self.quality_scale.set_draw_value(True)
+        self.quality_scale.set_hexpand(True)
+        quality_row.append(self.quality_scale)
+        quality_row.append(self._create_quality_bound_label("Higher quality"))
         return quality_row
 
-    def _create_quality_hint_label(self) -> Gtk.Label:
-        hint_label = Gtk.Label(label="Less means higher quality")
-        hint_label.add_css_class(DIM_LABEL_CSS_CLASS)
-        hint_label.set_xalign(LEFT_ALIGN)
-        return hint_label
+    def _create_quality_bound_label(self, label: str) -> Gtk.Label:
+        bound_label = Gtk.Label(label=label)
+        bound_label.add_css_class(DIM_LABEL_CSS_CLASS)
+        return bound_label
+
+    def _create_speed_row(self) -> Gtk.Box:
+        speed_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=ROW_SPACING,
+        )
+        speed_row.append(Gtk.Label(label="Encode speed"))
+        self.speed_combo_box = Gtk.ComboBoxText()
+        for label in u.ENCODE_SPEED_LABELS.values():
+            self.speed_combo_box.append_text(label)
+        speed_index = list(u.ENCODE_SPEED_LABELS).index(u.DEFAULT_ENCODE_SPEED)
+        self.speed_combo_box.set_active(speed_index)
+        speed_row.append(self.speed_combo_box)
+        return speed_row
 
     def _create_codec_row(self) -> Gtk.Box:
         codec_row = Gtk.Box(
@@ -700,27 +676,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.codec_combo_box.append_text("Detecting...")
         self.codec_combo_box.set_active(0)
         self.codec_combo_box.set_sensitive(False)
-        self.codec_combo_box.connect("changed", self._on_codec_changed)
         codec_row.append(self.codec_combo_box)
-        self.availability_label_widget = Gtk.Label(label="Detecting acceleration...")
-        self.availability_label_widget.add_css_class(DIM_LABEL_CSS_CLASS)
-        self.availability_label_widget.set_xalign(LEFT_ALIGN)
-        self.availability_label_widget.set_hexpand(True)
-        codec_row.append(self.availability_label_widget)
         return codec_row
-
-    def _create_preset_row(self) -> Gtk.Box:
-        preset_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=ROW_SPACING,
-        )
-        preset_row.append(Gtk.Label(label="Preset"))
-        self.preset_combo_box = Gtk.ComboBoxText()
-        self.preset_combo_box.append_text("Detecting...")
-        self.preset_combo_box.set_active(0)
-        self.preset_combo_box.set_sensitive(False)
-        preset_row.append(self.preset_combo_box)
-        return preset_row
 
     def _create_resolution_row(self) -> Gtk.Box:
         resolution_row = Gtk.Box(

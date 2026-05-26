@@ -15,9 +15,9 @@ class EncoderDefinition:
     needs_hwupload: bool
     hwaccel: str | None
     quality_options: list[str]
-    preset_options: list[str] = field(default_factory=list)
-    default_preset: str | None = None
-    preset_option: str = "preset"
+    quality_min: int = 1
+    quality_max: int = 51
+    speed_options: dict[str, OutputOptions] = field(default_factory=dict)
     default_options: OutputOptions = field(default_factory=dict)
 
 
@@ -35,6 +35,18 @@ VIDEO_CODEC_LABELS = {
     VIDEO_CODEC_AV1: "AV1",
 }
 DEFAULT_VIDEO_CODEC = VIDEO_CODEC_HEVC
+ENCODE_SPEED_FAST = "fast"
+ENCODE_SPEED_BALANCED = "balanced"
+ENCODE_SPEED_BEST_COMPRESSION = "best_compression"
+DEFAULT_ENCODE_SPEED = ENCODE_SPEED_BALANCED
+ENCODE_SPEED_LABELS = {
+    ENCODE_SPEED_FAST: "Fast",
+    ENCODE_SPEED_BALANCED: "Balanced",
+    ENCODE_SPEED_BEST_COMPRESSION: "Best compression",
+}
+USER_QUALITY_MIN = 1
+USER_QUALITY_MAX = 100
+DEFAULT_USER_QUALITY = 60
 HARDWARE_ACCELERATION_LABELS = {
     "cuda": "CUDA",
     "qsv": "QSV",
@@ -51,26 +63,23 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
             needs_hwupload=False,
             hwaccel="cuda",
             quality_options=["cq"],
-            preset_options=["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
-            default_preset="p7",
-            default_options={"preset": "p7", "tune": "hq", "rc": "vbr"},
+            speed_options={
+                ENCODE_SPEED_FAST: {"preset": "p4"},
+                ENCODE_SPEED_BALANCED: {"preset": "p6"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"preset": "p7"},
+            },
+            default_options={"tune": "hq", "rc": "vbr"},
         ),
         "qsv": EncoderDefinition(
             codec="hevc_qsv",
             needs_hwupload=False,
             hwaccel="qsv",
             quality_options=["global_quality"],
-            preset_options=[
-                "veryfast",
-                "faster",
-                "fast",
-                "medium",
-                "slow",
-                "slower",
-                "veryslow",
-            ],
-            default_preset="veryslow",
-            default_options={"preset": "veryslow"},
+            speed_options={
+                ENCODE_SPEED_FAST: {"preset": "fast"},
+                ENCODE_SPEED_BALANCED: {"preset": "slow"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"preset": "veryslow"},
+            },
         ),
         "vaapi": EncoderDefinition(
             codec="hevc_vaapi",
@@ -84,7 +93,12 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
             needs_hwupload=False,
             hwaccel="amf",
             quality_options=["qp_i", "qp_p"],
-            default_options={"usage": "high_quality", "quality": "quality"},
+            speed_options={
+                ENCODE_SPEED_FAST: {"quality": "speed"},
+                ENCODE_SPEED_BALANCED: {"quality": "balanced"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"quality": "quality"},
+            },
+            default_options={"usage": "high_quality"},
         ),
         "vulkan": EncoderDefinition(
             codec="hevc_vulkan",
@@ -98,19 +112,11 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
             needs_hwupload=False,
             hwaccel=None,
             quality_options=["crf"],
-            preset_options=[
-                "ultrafast",
-                "superfast",
-                "veryfast",
-                "faster",
-                "fast",
-                "medium",
-                "slow",
-                "slower",
-                "veryslow",
-            ],
-            default_preset="veryslow",
-            default_options={"preset": "veryslow"},
+            speed_options={
+                ENCODE_SPEED_FAST: {"preset": "fast"},
+                ENCODE_SPEED_BALANCED: {"preset": "medium"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"preset": "slow"},
+            },
         ),
     },
     VIDEO_CODEC_AV1: {
@@ -119,26 +125,23 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
             needs_hwupload=False,
             hwaccel="cuda",
             quality_options=["cq"],
-            preset_options=["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
-            default_preset="p7",
-            default_options={"preset": "p7", "tune": "hq", "rc": "vbr"},
+            speed_options={
+                ENCODE_SPEED_FAST: {"preset": "p4"},
+                ENCODE_SPEED_BALANCED: {"preset": "p6"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"preset": "p7"},
+            },
+            default_options={"tune": "hq", "rc": "vbr"},
         ),
         "qsv": EncoderDefinition(
             codec="av1_qsv",
             needs_hwupload=False,
             hwaccel="qsv",
             quality_options=["global_quality"],
-            preset_options=[
-                "veryfast",
-                "faster",
-                "fast",
-                "medium",
-                "slow",
-                "slower",
-                "veryslow",
-            ],
-            default_preset="veryslow",
-            default_options={"preset": "veryslow"},
+            speed_options={
+                ENCODE_SPEED_FAST: {"preset": "fast"},
+                ENCODE_SPEED_BALANCED: {"preset": "slow"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"preset": "veryslow"},
+            },
         ),
         "vaapi": EncoderDefinition(
             codec="av1_vaapi",
@@ -152,51 +155,49 @@ ENCODERS_BY_VIDEO_CODEC: dict[str, dict[str, EncoderDefinition]] = {
             needs_hwupload=False,
             hwaccel="amf",
             quality_options=["qp_i", "qp_p"],
-            default_options={"usage": "high_quality", "quality": "quality"},
+            speed_options={
+                ENCODE_SPEED_FAST: {"quality": "speed"},
+                ENCODE_SPEED_BALANCED: {"quality": "balanced"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"quality": "quality"},
+            },
+            default_options={"usage": "high_quality"},
         ),
         "libsvtav1": EncoderDefinition(
             codec="libsvtav1",
             needs_hwupload=False,
             hwaccel=None,
             quality_options=["crf"],
-            preset_options=[
-                "0",
-                "1",
-                "2",
-                "3",
-                "4",
-                "5",
-                "6",
-                "7",
-                "8",
-                "9",
-                "10",
-                "11",
-                "12",
-                "13",
-            ],
-            default_preset="6",
-            default_options={"preset": "6"},
+            quality_max=63,
+            speed_options={
+                ENCODE_SPEED_FAST: {"preset": "10"},
+                ENCODE_SPEED_BALANCED: {"preset": "7"},
+                ENCODE_SPEED_BEST_COMPRESSION: {"preset": "4"},
+            },
         ),
         "libaom-av1": EncoderDefinition(
             codec="libaom-av1",
             needs_hwupload=False,
             hwaccel=None,
             quality_options=["crf"],
-            preset_options=["0", "1", "2", "3", "4", "5", "6", "7", "8"],
-            default_preset="4",
-            preset_option="cpu-used",
-            default_options={"cpu-used": 4, "b:v": 0},
+            quality_max=63,
+            speed_options={
+                ENCODE_SPEED_FAST: {"cpu-used": 6},
+                ENCODE_SPEED_BALANCED: {"cpu-used": 4},
+                ENCODE_SPEED_BEST_COMPRESSION: {"cpu-used": 2},
+            },
+            default_options={"b:v": 0},
         ),
         "librav1e": EncoderDefinition(
             codec="librav1e",
             needs_hwupload=False,
             hwaccel=None,
             quality_options=["qp"],
-            preset_options=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
-            default_preset="6",
-            preset_option="speed",
-            default_options={"speed": 6},
+            quality_max=63,
+            speed_options={
+                ENCODE_SPEED_FAST: {"speed": 8},
+                ENCODE_SPEED_BALANCED: {"speed": 6},
+                ENCODE_SPEED_BEST_COMPRESSION: {"speed": 4},
+            },
         ),
     },
 }
@@ -369,7 +370,7 @@ def _output_options(
     quality: int | None,
     frame_rate: float | None = None,
     copy_metadata: bool = False,
-    preset: str | None = None,
+    speed: str = DEFAULT_ENCODE_SPEED,
 ) -> OutputOptions:
     options: OutputOptions = {
         "codec:v": encoder.codec,
@@ -383,12 +384,12 @@ def _output_options(
     if video_filter is not None:
         options["vf"] = video_filter
 
-    if preset is not None:
-        if preset not in encoder.preset_options:
-            raise ValueError(f"Unsupported preset for {encoder.codec}: {preset}")
-        options[encoder.preset_option] = preset
+    if speed not in ENCODE_SPEED_LABELS:
+        raise ValueError(f"Unsupported encode speed: {speed}")
+    options.update(encoder.speed_options.get(speed, {}))
 
     if quality is not None:
+        quality = map_user_quality(encoder, quality)
         for option in encoder.quality_options:
             options[option] = quality
 
@@ -474,14 +475,6 @@ def collect_video_files(folder: PathLike) -> list[Path]:
     return files
 
 
-def get_preset_options(encode_configuration: EncodeConfiguration) -> list[str]:
-    return encode_configuration.encoder.preset_options.copy()
-
-
-def get_default_preset(encode_configuration: EncodeConfiguration) -> str | None:
-    return encode_configuration.encoder.default_preset
-
-
 def copy_metadata_with_exiftool(source: PathLike, output: PathLike) -> None:
     try:
         logger.info("Copying metadata with ExifTool: %s -> %s", source, output)
@@ -540,36 +533,6 @@ def get_encode_configuration(
     raise RuntimeError(f"No usable {label} encoder found in ffmpeg.")
 
 
-def format_availability_summary(
-    configurations_by_codec: dict[str, list[EncodeConfiguration]],
-) -> str:
-    summaries = []
-
-    for video_codec in (VIDEO_CODEC_HEVC, VIDEO_CODEC_AV1):
-        configurations = configurations_by_codec.get(video_codec, [])
-        hardware = []
-        software_available = False
-
-        for configuration in configurations:
-            hwaccel = configuration.encoder.hwaccel
-            if hwaccel is None:
-                software_available = True
-            else:
-                hardware.append(HARDWARE_ACCELERATION_LABELS.get(hwaccel, hwaccel))
-
-        parts = sorted(set(hardware))
-        if software_available:
-            parts.append("software")
-        if not parts:
-            parts.append("none")
-
-        summaries.append(
-            f"{VIDEO_CODEC_LABELS[video_codec]} acceleration: {', '.join(parts)}"
-        )
-
-    return "; ".join(summaries)
-
-
 def select_default_video_codec(
     configurations_by_codec: dict[str, list[EncodeConfiguration]],
 ) -> str | None:
@@ -590,13 +553,21 @@ def select_default_video_codec(
     return None
 
 
+def map_user_quality(encoder: EncoderDefinition, quality: int) -> int:
+    quality = max(USER_QUALITY_MIN, min(USER_QUALITY_MAX, quality))
+    user_range = USER_QUALITY_MAX - USER_QUALITY_MIN
+    backend_range = encoder.quality_max - encoder.quality_min
+    quality_fraction = (quality - USER_QUALITY_MIN) / user_range
+    return round(encoder.quality_max - quality_fraction * backend_range)
+
+
 def append_encode_options(
     encode_configuration: EncodeConfiguration,
     resolution: int | None,
     quality: int | None,
     frame_rate: float | None = None,
     copy_metadata: bool = False,
-    preset: str | None = None,
+    speed: str = DEFAULT_ENCODE_SPEED,
 ) -> EncodeConfiguration:
     return replace(
         encode_configuration,
@@ -606,6 +577,6 @@ def append_encode_options(
             quality=quality,
             frame_rate=frame_rate,
             copy_metadata=copy_metadata,
-            preset=preset,
+            speed=speed,
         ),
     )
